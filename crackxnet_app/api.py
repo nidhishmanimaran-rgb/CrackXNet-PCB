@@ -62,6 +62,7 @@ async def inspect(file: UploadFile = File(...)) -> JSONResponse:
     payload["overlay_image"] = _image_to_data_uri(outputs.overlay)
     payload["heatmap_image"] = _image_to_data_uri(outputs.heatmap)
     payload["report_id"] = report_id
+    payload["model_status"] = pipeline.model_status
     return JSONResponse(payload)
 
 

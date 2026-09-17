@@ -2,6 +2,7 @@ const fileInput = document.querySelector("#fileInput");
 const decision = document.querySelector("#decision");
 const defectCount = document.querySelector("#defectCount");
 const maxSeverity = document.querySelector("#maxSeverity");
+const modelStatus = document.querySelector("#modelStatus");
 const overlay = document.querySelector("#overlay");
 const heatmap = document.querySelector("#heatmap");
 const findings = document.querySelector("#findings");
@@ -35,6 +36,7 @@ function renderResult(payload) {
   decision.className = `decision-${payload.decision.toLowerCase()}`;
   defectCount.textContent = payload.defects.length;
   maxSeverity.textContent = Number(payload.max_severity).toFixed(3);
+  modelStatus.textContent = payload.model_status || "Baseline / Demo Mode";
   overlay.src = payload.overlay_image;
   heatmap.src = payload.heatmap_image;
   reportLink.href = `/api/report/${payload.report_id}`;

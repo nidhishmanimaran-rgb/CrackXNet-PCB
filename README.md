@@ -1,45 +1,120 @@
-# CrackXNet PCB Defect Inspection MVP
+# CrackXNet PCB Defect Inspection
 
-This is a runnable MVP for the CrackXNet PCB defect inspection workflow:
+Workflow:
 
-`PCB image -> defect detection -> class/severity -> explainability heatmap -> PASS/REWORK/REJECT -> report`
+```text
+PCB image -> detection -> class/severity -> explainability heatmap -> PASS/REWORK/REJECT -> report
+```
 
-The app is production-shaped but intentionally honest about modeling status. It includes a deterministic baseline detector so the product flow works end to end. It does **not** claim CrackXNet paper accuracy or report fabricated metrics. The EfficientNet-B0+CBAM, ViT, DDAFF, FPN, and Faster R-CNN pieces are separated as extension points for later replacement with trained models.
+Phase 2 implements a real DeepPCB + Faster R-CNN baseline. It preserves the FastAPI UI, CLI inference, reports, and the heuristic detector as explicit demo/fallback mode. It does not implement EfficientNet-B0 + CBAM, ViT, or DDAFF, and it does not claim reproduction of the paper's mAP.
 
-## Supported Defect Classes
+## Classes
 
-- Open Circuit
-- Short Circuit
-- Mouse Bite
-- Spur
-- Pin Hole
-- Spurious Copper
+DeepPCB class IDs:
 
-## Quick Start
+- `1`: Open Circuit
+- `2`: Short Circuit
+- `3`: Mouse Bite
+- `4`: Spur
+- `5`: Spurious Copper
+- `6`: Pin Hole
+
+## Install
 
 ```bash
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
-uvicorn crackxnet_app.api:app --reload --host 127.0.0.1 --port 8000
 ```
 
-Open:
+## Dataset
+
+Default dataset path:
 
 ```text
-http://127.0.0.1:8000
+D:\PCB\data\DeepPCB
 ```
 
-## Run Tests
+Detected structure:
 
-```bash
-pytest
+```text
+DeepPCB/
+  PCBData/
+    trainval.txt
+    test.txt
+    group*/
+      <group>/
+        *_test.jpg
+        *_temp.jpg
+      <group>_not/
+        *.txt
 ```
 
-## CLI Inference
+Split files contain:
+
+```text
+image_path annotation_path
+```
+
+The split image paths omit `_test`, while files are named `*_test.jpg`; the loader resolves both forms. Annotation format is:
+
+```text
+x1 y1 x2 y2 class_id
+```
+
+## Dataset Check
 
 ```bash
-python scripts/infer.py path\to\pcb.png --out outputs
+python scripts\dataset_check.py --data-root D:\PCB\data\DeepPCB
+```
+
+Reports image counts, annotation count, class distribution, train/validation/test counts, dimensions, missing/invalid data, and bbox validity. Annotated preview images are written only under `outputs/dataset_check`.
+
+## Train
+
+Full CPU training may be slow:
+
+```bash
+python scripts\train.py --data-root D:\PCB\data\DeepPCB --epochs 10 --batch-size 2 --lr 0.005 --output outputs\checkpoints --device auto
+```
+
+Smoke test:
+
+```bash
+python scripts\train.py --data-root D:\PCB\data\DeepPCB --epochs 1 --batch-size 1 --max-samples 1 --no-pretrained
+```
+
+Training logs include epoch, loss, validation metrics, checkpoint path, and elapsed time. Checkpoints are saved under `outputs/checkpoints`, with `best.pth` selected by real validation F1.
+
+## Evaluate
+
+```bash
+python scripts\evaluate.py --data-root D:\PCB\data\DeepPCB --model outputs\checkpoints\best.pth --output outputs\evaluation
+```
+
+Metrics are computed with documented one-to-one same-class IoU matching:
+
+- Precision
+- Recall
+- F1-score
+- mAP@0.5
+- mAP@0.5:0.95
+- Per-class metrics for all six classes
+
+Outputs: `metrics.json`, `metrics.csv`, and `summary.txt`.
+
+## Inference
+
+Checkpoint-backed inference:
+
+```bash
+python scripts\infer.py path\to\pcb.png --model outputs\checkpoints\best.pth --out outputs
+```
+
+Explicit demo mode:
+
+```bash
+python scripts\infer.py path\to\pcb.png --out outputs
 ```
 
 Outputs:
@@ -49,63 +124,67 @@ Outputs:
 - `heatmap.png`
 - `report.html`
 
-## Training Entry Point
+## FastAPI
 
 ```bash
-python scripts/train.py --data-root path\to\DeepPCB --epochs 1
+python -m uvicorn crackxnet_app.api:app --reload --host 127.0.0.1 --port 8000
 ```
 
-The current training script validates dataset structure and writes a manifest. It does not train the full CrackXNet hybrid model yet. That is intentional: DeepPCB training, Faster R-CNN fine-tuning, ViT fusion, and DDAFF validation require a real training loop and evaluation budget.
+Open:
+
+```text
+http://127.0.0.1:8000
+```
+
+The app auto-loads `outputs/checkpoints/best.pth` unless overridden:
+
+```bash
+set CRACKXNET_CHECKPOINT=D:\PCB\outputs\checkpoints\best.pth
+set CRACKXNET_DEVICE=auto
+set CRACKXNET_CONFIDENCE=0.5
+```
+
+The UI shows `DeepPCB Faster R-CNN` when a trained checkpoint is loaded. With no checkpoint, it shows `Baseline / Demo Mode`.
 
 ## Architecture
 
 ```text
 crackxnet_app/
-  api.py                 FastAPI app and web endpoints
-  config.py              Labels and thresholds
-  schemas.py             Typed result models
+  api.py
+  config.py
+  schemas.py
+  deeppcb/
+    dataset.py
+    transforms.py
+    torch_dataset.py
+    model.py
+    evaluation.py
   inference/
-    pipeline.py          End-to-end inspection pipeline
-    preprocessing.py     Resize/normalize utilities
-    baseline_detector.py Heuristic detector baseline
-    modules.py           CrackXNet extension interfaces/stubs
+    baseline_detector.py
+    faster_rcnn_detector.py
+    pipeline.py
+    preprocessing.py
+    modules.py
   reporting/
-    html_report.py       Downloadable HTML report
+    html_report.py
   static/
-    index.html           Upload UI
-    app.js               Browser interaction
-    styles.css           Minimal app styling
 scripts/
-  infer.py               CLI inference
-  train.py               Dataset/training scaffold
+  dataset_check.py
+  train.py
+  evaluate.py
+  infer.py
 tests/
-  test_pipeline.py       Smoke tests with synthetic PCB image
 ```
 
-## What Is Real in This MVP
+## Phase Roadmap
 
-- Upload and inspect a PCB image.
-- Produce defect boxes, labels, confidence scores, severity, decision, visual overlay, and heatmap.
-- Generate downloadable inspection reports.
-- Run CLI inference.
-- Run tests.
-- Keep paper components modular.
+- Phase 2: DeepPCB + Faster R-CNN baseline.
+- Phase 3: EfficientNet-B0 + CBAM local feature module.
+- Later phases: ViT global features and DDAFF fusion.
 
-## What Is Baseline or Extension-Ready
+## Troubleshooting
 
-- Detection is a classical image-processing baseline, not trained Faster R-CNN.
-- Classification uses rule-based geometry/color features, not the final hybrid CrackXNet classifier.
-- Severity is rule-based with a clean replacement boundary for learned severity.
-- Heatmap is saliency-style baseline from defect masks, not Grad-CAM from a trained neural backbone.
-- Metrics are not reported unless you evaluate against labeled data.
-
-## DeepPCB Notes
-
-DeepPCB has six defect classes and paired template/test PCB images with annotations. To implement the full paper model later:
-
-1. Convert annotations into COCO or Pascal VOC format.
-2. Fine-tune an FPN Faster R-CNN detector.
-3. Add EfficientNet-B0 + CBAM local features.
-4. Add ViT global features.
-5. Implement DDAFF for adaptive local/global fusion.
-6. Evaluate Precision, Recall, F1, mAP@0.5, and mAP@0.5:0.95 on a held-out split.
+- If `D:\PCB\data\DeepPCB` is missing, place or link the local DeepPCB dataset there.
+- CPU is supported but slow; use `--device cuda` only when CUDA is available.
+- If a checkpoint is missing or invalid, CLI inference exits with a clear error.
+- Dataset and model weights are ignored by `.gitignore`; do not commit DeepPCB data or `.pth` files.

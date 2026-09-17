@@ -1,0 +1,10 @@
+data/
+/DeepPCB/
+/DeepPCB-master/
+outputs/
+.venv/
+__pycache__/
+.pytest_cache/
+*.pt
+*.pth
+.env

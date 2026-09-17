@@ -87,7 +87,7 @@ p {
 
 .status-row {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 12px;
   padding: 16px;
   margin-top: 16px;
@@ -108,7 +108,8 @@ p {
 .metric strong {
   display: block;
   margin-top: 4px;
-  font-size: 22px;
+  font-size: 20px;
+  overflow-wrap: anywhere;
 }
 
 .viewer {
