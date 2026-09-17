@@ -3,11 +3,18 @@ from __future__ import annotations
 from PIL import Image, ImageOps
 import numpy as np
 
+from crackxnet_app.config import MAX_UPLOAD_PIXELS
+
 
 def load_rgb_image(file_bytes: bytes) -> Image.Image:
     try:
         image = Image.open(__import__("io").BytesIO(file_bytes))
+        width, height = image.size
+        if width * height > MAX_UPLOAD_PIXELS:
+            raise ValueError("Uploaded image exceeds the configured pixel limit.")
         return ImageOps.exif_transpose(image).convert("RGB")
+    except ValueError:
+        raise
     except Exception as exc:
         raise ValueError("Uploaded file is not a readable image.") from exc
 

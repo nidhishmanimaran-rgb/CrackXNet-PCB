@@ -173,6 +173,32 @@ th {
 
 .message {
   min-height: 20px;
+  overflow-wrap: anywhere;
+}
+
+.quality-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.quality-grid div {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px;
+}
+
+.quality-grid span {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.quality-grid strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 18px;
+  overflow-wrap: anywhere;
 }
 
 .decision-pass {
@@ -190,7 +216,8 @@ th {
 @media (max-width: 760px) {
   .toolbar,
   .viewer,
-  .status-row {
+  .status-row,
+  .quality-grid {
     grid-template-columns: 1fr;
     display: grid;
   }

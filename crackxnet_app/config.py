@@ -22,11 +22,35 @@ NUM_DETECTION_CLASSES = len(DEFECT_CLASSES) + 1
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATA_ROOT = Path(os.getenv("DEEPCB_DATA_ROOT", PROJECT_ROOT / "data" / "DeepPCB"))
 DEFAULT_CHECKPOINT_PATH = Path(
-    os.getenv("CRACKXNET_CHECKPOINT", PROJECT_ROOT / "outputs" / "checkpoints" / "best.pth")
+    os.getenv("CRACKXNET_CHECKPOINT", PROJECT_ROOT / "outputs" / "trained" / "baseline" / "best.pth")
 )
 DEFAULT_DEVICE = os.getenv("CRACKXNET_DEVICE", "auto")
 DEFAULT_CONFIDENCE_THRESHOLD = float(os.getenv("CRACKXNET_CONFIDENCE", "0.5"))
 DEFAULT_MODEL_MODE = os.getenv("CRACKXNET_MODEL_MODE", "baseline")
+MAX_UPLOAD_BYTES = int(os.getenv("CRACKXNET_MAX_UPLOAD_BYTES", str(15 * 1024 * 1024)))
+MAX_UPLOAD_PIXELS = int(os.getenv("CRACKXNET_MAX_UPLOAD_PIXELS", "40000000"))
+REPORT_CACHE_MAX_ENTRIES = int(os.getenv("CRACKXNET_REPORT_CACHE_MAX_ENTRIES", "100"))
+
+
+@dataclass(frozen=True)
+class SecurityConfig:
+    """Optional in-process safeguards for local/public API hosting.
+
+    Set `CRACKXNET_API_KEY` before exposing the service outside a trusted local
+    network. Rate limiting is process-local; production deployments should also
+    enforce it at the reverse proxy or gateway.
+    """
+
+    api_key: str | None = os.getenv("CRACKXNET_API_KEY") or None
+    rate_limit_requests: int = int(os.getenv("CRACKXNET_RATE_LIMIT_REQUESTS", "60"))
+    rate_limit_window_seconds: int = int(os.getenv("CRACKXNET_RATE_LIMIT_WINDOW_SECONDS", "60"))
+
+    def __post_init__(self) -> None:
+        if self.rate_limit_requests <= 0 or self.rate_limit_window_seconds <= 0:
+            raise ValueError("Security rate-limit settings must be positive.")
+
+
+DEFAULT_SECURITY_CONFIG = SecurityConfig()
 
 
 @dataclass(frozen=True)
@@ -94,7 +118,7 @@ DEFAULT_DDAFF_CONFIG = DDAFFConfig()
 class HybridDetectorConfig:
     enabled: bool = os.getenv("CRACKXNET_HYBRID_ENABLED", "0") == "1"
     checkpoint_path: Path = Path(
-        os.getenv("CRACKXNET_HYBRID_CHECKPOINT", PROJECT_ROOT / "outputs" / "hybrid_checkpoints" / "best.pth")
+        os.getenv("CRACKXNET_HYBRID_CHECKPOINT", PROJECT_ROOT / "outputs" / "trained" / "hybrid" / "best.pth")
     )
     image_size: int = int(os.getenv("CRACKXNET_HYBRID_IMAGE_SIZE", "224"))
     fusion_dim: int = int(os.getenv("CRACKXNET_HYBRID_FUSION_DIM", "256"))
@@ -109,3 +133,40 @@ class HybridDetectorConfig:
 
 
 DEFAULT_HYBRID_DETECTOR_CONFIG = HybridDetectorConfig()
+
+
+@dataclass(frozen=True)
+class SeverityConfig:
+    mode: str = os.getenv("CRACKXNET_SEVERITY_MODE", "rule_based")
+    low_max_score: float = float(os.getenv("CRACKXNET_SEVERITY_LOW_MAX", "0.35"))
+    medium_max_score: float = float(os.getenv("CRACKXNET_SEVERITY_MEDIUM_MAX", "0.72"))
+    area_weight: float = float(os.getenv("CRACKXNET_SEVERITY_AREA_WEIGHT", "45.0"))
+    confidence_weight: float = float(os.getenv("CRACKXNET_SEVERITY_CONFIDENCE_WEIGHT", "0.25"))
+    elongation_weight: float = float(os.getenv("CRACKXNET_SEVERITY_ELONGATION_WEIGHT", "0.12"))
+
+
+DEFAULT_SEVERITY_CONFIG = SeverityConfig()
+
+
+@dataclass(frozen=True)
+class ExplainabilityConfig:
+    enabled: bool = os.getenv("CRACKXNET_EXPLAINABILITY_ENABLED", "1") == "1"
+    method: str = os.getenv("CRACKXNET_EXPLAINABILITY_METHOD", "grad_cam")
+    top_k: int = int(os.getenv("CRACKXNET_EXPLAINABILITY_TOP_K", "5"))
+
+
+DEFAULT_EXPLAINABILITY_CONFIG = ExplainabilityConfig()
+
+
+@dataclass(frozen=True)
+class QualityConfig:
+    mode: str = os.getenv("CRACKXNET_QUALITY_MODE", "rule_based")
+    min_confidence: float = float(os.getenv("CRACKXNET_QUALITY_MIN_CONFIDENCE", "0.25"))
+    reject_on_high_severity_count: int = int(os.getenv("CRACKXNET_QUALITY_REJECT_HIGH_COUNT", "1"))
+    reject_on_total_defects: int = int(os.getenv("CRACKXNET_QUALITY_REJECT_DEFECT_COUNT", "8"))
+    rework_on_medium_severity_count: int = int(os.getenv("CRACKXNET_QUALITY_REWORK_MEDIUM_COUNT", "1"))
+    rework_on_low_severity_count: int = int(os.getenv("CRACKXNET_QUALITY_REWORK_LOW_COUNT", "3"))
+    pass_on_no_detections: bool = os.getenv("CRACKXNET_QUALITY_PASS_ON_NO_DETECTIONS", "1") == "1"
+
+
+DEFAULT_QUALITY_CONFIG = QualityConfig()

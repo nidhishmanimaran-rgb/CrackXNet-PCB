@@ -115,10 +115,37 @@ def map_metrics(predictions: list[dict], targets: list[dict]) -> dict:
     }
 
 
-def full_metrics(predictions: list[dict], targets: list[dict]) -> dict:
-    pr = precision_recall_f1(predictions, targets, iou_threshold=0.5)
+def full_metrics(
+    predictions: list[dict],
+    targets: list[dict],
+    precision_recall_confidence_threshold: float | None = 0.5,
+) -> dict:
+    """Calculate thresholded precision/recall/F1 and score-ranked AP metrics.
+
+    AP/mAP intentionally use every detector score.  Applying a confidence cutoff
+    before AP would make the reported mAP dependent on a deployment threshold.
+    """
+    pr_predictions = _filter_predictions(predictions, precision_recall_confidence_threshold)
+    pr = precision_recall_f1(pr_predictions, targets, iou_threshold=0.5)
     maps = map_metrics(predictions, targets)
-    return {**pr, **maps}
+    return {
+        **pr,
+        **maps,
+        "precision_recall_confidence_threshold": precision_recall_confidence_threshold,
+    }
+
+
+def _filter_predictions(predictions: list[dict], threshold: float | None) -> list[dict]:
+    if threshold is None:
+        return predictions
+    return [
+        {
+            "boxes": prediction["boxes"][prediction["scores"] >= threshold],
+            "labels": prediction["labels"][prediction["scores"] >= threshold],
+            "scores": prediction["scores"][prediction["scores"] >= threshold],
+        }
+        for prediction in predictions
+    ]
 
 
 def save_metrics(metrics: dict, output_dir: Path) -> None:

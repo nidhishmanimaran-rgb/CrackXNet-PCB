@@ -10,7 +10,7 @@ from torchvision.models import EfficientNet_B0_Weights, efficientnet_b0
 from torchvision.transforms import functional as F
 
 from crackxnet_app.config import DEFAULT_LOCAL_FEATURE_CONFIG, LocalFeatureConfig
-from crackxnet_app.deeppcb.model import get_device
+from crackxnet_app.deeppcb.model import get_device, load_checkpoint_payload
 from crackxnet_app.features.cbam import CBAM, validate_feature_tensor
 
 
@@ -64,6 +64,7 @@ class EfficientNetCBAMLocalFeatureExtractor(nn.Module):
             raise ValueError("input_size must be positive.")
         self.device = get_device(device or base_config.device)
         use_pretrained = base_config.efficientnet_pretrained if pretrained is None else pretrained
+        self.normalize_inputs = use_pretrained
         reduction = cbam_reduction_ratio if cbam_reduction_ratio is not None else base_config.cbam_reduction_ratio
         self.backbone = EfficientNetB0FeatureBackbone(pretrained=use_pretrained)
         self.cbam = CBAM(self.backbone.output_channels, reduction_ratio=reduction)
@@ -81,6 +82,8 @@ class EfficientNetCBAMLocalFeatureExtractor(nn.Module):
     def forward(self, image_tensor: torch.Tensor) -> LocalFeatureOutput:
         validate_feature_tensor(image_tensor, module_name=self.__class__.__name__)
         image_tensor = image_tensor.to(self.device)
+        if self.normalize_inputs:
+            image_tensor = _imagenet_normalize(image_tensor)
         feature_map = self.backbone(image_tensor)
         refined = self.cbam(feature_map)
         pooled = self.pool(refined).flatten(1)
@@ -107,6 +110,12 @@ class EfficientNetCBAMLocalFeatureExtractor(nn.Module):
         path = Path(checkpoint_path)
         if not path.exists():
             raise FileNotFoundError(f"Local feature checkpoint not found: {path}")
-        payload = torch.load(path, map_location=self.device)
+        payload = load_checkpoint_payload(path, self.device)
         state = payload.get("model_state", payload) if isinstance(payload, dict) else payload
         self.load_state_dict(state)
+
+
+def _imagenet_normalize(image_tensor: torch.Tensor) -> torch.Tensor:
+    mean = torch.tensor((0.485, 0.456, 0.406), device=image_tensor.device).view(1, 3, 1, 1)
+    std = torch.tensor((0.229, 0.224, 0.225), device=image_tensor.device).view(1, 3, 1, 1)
+    return (image_tensor - mean) / std

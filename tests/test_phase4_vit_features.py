@@ -99,3 +99,22 @@ def test_vit_config_and_protocol_compatibility() -> None:
     assert config.vit_variant == "vit_b_32"
     assert config.input_size == 64
     assert isinstance(extractor, TorchGlobalFeatureExtractor)
+
+
+def test_pretrained_vit_extractor_normalizes_inputs(monkeypatch) -> None:
+    class DummyBackbone(nn.Module):
+        patch_size = 16
+
+        def __init__(self, variant: str, pretrained: bool, image_size: int) -> None:
+            super().__init__()
+            self.seen = None
+
+        def forward(self, image: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+            self.seen = image
+            return torch.zeros(image.shape[0], 768), torch.zeros(image.shape[0], 4, 768)
+
+    monkeypatch.setattr(vit, "ViTFeatureBackbone", DummyBackbone)
+    extractor = ViTGlobalFeatureExtractor(variant="vit_b_16", pretrained=True, input_size=32, device="cpu")
+    extractor(torch.zeros(1, 3, 32, 32))
+
+    assert torch.isclose(extractor.backbone.seen[0, 0, 0, 0], torch.tensor(-0.485 / 0.229))

@@ -8,6 +8,11 @@ const heatmap = document.querySelector("#heatmap");
 const findings = document.querySelector("#findings");
 const message = document.querySelector("#message");
 const reportLink = document.querySelector("#reportLink");
+const qualityStatus = document.querySelector("#qualityStatus");
+const qualityDefects = document.querySelector("#qualityDefects");
+const qualitySeverity = document.querySelector("#qualitySeverity");
+const qualityReason = document.querySelector("#qualityReason");
+const qualityRecommendation = document.querySelector("#qualityRecommendation");
 
 fileInput.addEventListener("change", async () => {
   const file = fileInput.files[0];
@@ -41,9 +46,10 @@ function renderResult(payload) {
   heatmap.src = payload.heatmap_image;
   reportLink.href = `/api/report/${payload.report_id}`;
   reportLink.classList.remove("disabled");
+  renderQuality(payload.quality, payload.decision);
 
   if (!payload.defects.length) {
-    findings.innerHTML = '<tr><td colspan="5">No defects detected by the baseline pipeline.</td></tr>';
+    findings.innerHTML = '<tr><td colspan="5">No defects detected by the selected inspection pipeline.</td></tr>';
     return;
   }
 
@@ -52,11 +58,28 @@ function renderResult(payload) {
     return `<tr>
       <td>${escapeHtml(defect.label)}</td>
       <td>${Number(defect.confidence).toFixed(3)}</td>
-      <td>${Number(defect.severity).toFixed(3)}</td>
+      <td>${escapeHtml(defect.severity_label || "LOW")} (${Number(defect.severity).toFixed(3)})</td>
       <td>${box.x1}, ${box.y1}, ${box.x2}, ${box.y2}</td>
-      <td>${escapeHtml(defect.rationale)}</td>
+      <td>${escapeHtml(defect.rationale)} ${escapeHtml(defect.severity_reason || "")}</td>
     </tr>`;
   }).join("");
+}
+
+function renderQuality(quality, fallbackDecision) {
+  if (!quality) {
+    qualityStatus.textContent = fallbackDecision || "-";
+    qualityDefects.textContent = "0";
+    qualitySeverity.textContent = "-";
+    qualityReason.textContent = "";
+    qualityRecommendation.textContent = "";
+    return;
+  }
+  qualityStatus.textContent = quality.status;
+  qualityStatus.className = `decision-${quality.status.toLowerCase()}`;
+  qualityDefects.textContent = `${quality.defect_count} considered, ${quality.ignored_low_confidence_count} ignored`;
+  qualitySeverity.textContent = `H:${quality.high_severity_count} M:${quality.medium_severity_count} L:${quality.low_severity_count}`;
+  qualityReason.textContent = quality.reason;
+  qualityRecommendation.textContent = quality.recommendation;
 }
 
 function escapeHtml(value) {

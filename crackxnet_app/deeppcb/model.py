@@ -2,13 +2,63 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+import random
+import platform
+import sys
 
+import numpy as np
 import torch
 from torchvision.models.detection import FasterRCNN_MobileNet_V3_Large_FPN_Weights
 from torchvision.models.detection import fasterrcnn_mobilenet_v3_large_fpn
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 
 from crackxnet_app.config import NUM_DETECTION_CLASSES
+
+
+def load_checkpoint_payload(path: str | Path, map_location: str | torch.device = "cpu") -> dict[str, Any]:
+    """Load a model checkpoint without allowing pickle object execution."""
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"Checkpoint not found: {path}")
+    if path.suffix.lower() not in {".pt", ".pth"}:
+        raise ValueError(f"Checkpoint must use a .pt or .pth suffix: {path}")
+    try:
+        payload = torch.load(path, map_location=map_location, weights_only=True)
+    except Exception as exc:
+        raise RuntimeError(f"Could not safely load checkpoint: {path.name}") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"Invalid checkpoint payload: {path.name}")
+    return payload
+
+
+def set_reproducible_seed(seed: int) -> None:
+    """Seed Python, NumPy, and Torch without forcing unsupported detector ops."""
+    if seed < 0:
+        raise ValueError("seed must be non-negative")
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+
+
+def seed_worker(worker_id: int) -> None:
+    worker_seed = torch.initial_seed() % (2**32)
+    random.seed(worker_seed)
+    np.random.seed(worker_seed)
+
+
+def runtime_environment() -> dict[str, str | bool]:
+    return {
+        "python": sys.version.split()[0],
+        "platform": platform.platform(),
+        "torch": str(torch.__version__),
+        "torchvision": str(__import__("torchvision").__version__),
+        "numpy": str(np.__version__),
+        "cuda_available": torch.cuda.is_available(),
+    }
 
 
 def get_device(device: str = "auto") -> torch.device:
@@ -40,6 +90,7 @@ def save_checkpoint(
     epoch: int = 0,
     metrics: dict[str, Any] | None = None,
     image_size: int = 640,
+    training_config: dict[str, Any] | None = None,
 ) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -50,6 +101,7 @@ def save_checkpoint(
         "num_classes": NUM_DETECTION_CLASSES,
         "model_name": "fasterrcnn_mobilenet_v3_large_fpn",
         "image_size": image_size,
+        "training_config": training_config or {},
     }
     if optimizer is not None:
         payload["optimizer_state"] = optimizer.state_dict()
@@ -61,10 +113,14 @@ def load_checkpoint(path: str | Path, device: str | torch.device = "cpu", pretra
     if not path.exists():
         raise FileNotFoundError(f"Checkpoint not found: {path}")
     map_location = get_device(device) if isinstance(device, str) else device
-    payload = torch.load(path, map_location=map_location)
+    payload = load_checkpoint_payload(path, map_location)
     if "model_state" not in payload:
         raise RuntimeError(f"Invalid checkpoint: {path} does not contain model_state")
     num_classes = int(payload.get("num_classes", NUM_DETECTION_CLASSES))
+    if num_classes != NUM_DETECTION_CLASSES:
+        raise RuntimeError(
+            f"Invalid checkpoint class count: expected {NUM_DETECTION_CLASSES}, got {num_classes}."
+        )
     image_size = int(payload.get("image_size", 640))
     model = create_faster_rcnn(num_classes=num_classes, pretrained=pretrained, image_size=image_size)
     model.load_state_dict(payload["model_state"])

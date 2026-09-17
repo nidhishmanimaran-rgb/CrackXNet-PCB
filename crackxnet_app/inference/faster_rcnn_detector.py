@@ -22,6 +22,7 @@ class FasterRCNNInspectionDetector:
     def __post_init__(self) -> None:
         self.torch_device = get_device(self.device)
         self.model, self.checkpoint = load_checkpoint(self.checkpoint_path, self.torch_device, pretrained=False)
+        self.image_size = int(self.checkpoint.get("image_size", self.image_size))
         self.model.eval()
 
     @property

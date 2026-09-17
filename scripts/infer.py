@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import io
 import json
 import sys
 from pathlib import Path
@@ -43,7 +45,10 @@ def main() -> None:
     outputs = pipeline.inspect(image, filename=args.image.name)
 
     (args.out / "inspection.json").write_text(json.dumps(outputs.result.to_dict(), indent=2), encoding="utf-8")
-    (args.out / "report.html").write_text(render_html_report(outputs.result), encoding="utf-8")
+    (args.out / "report.html").write_text(
+        render_html_report(outputs.result, explainability_image_uri=_image_to_data_uri(outputs.heatmap)),
+        encoding="utf-8",
+    )
     outputs.overlay.save(args.out / "overlay.png")
     outputs.heatmap.save(args.out / "heatmap.png")
 
@@ -51,6 +56,12 @@ def main() -> None:
     print(f"Defects: {len(outputs.result.defects)}")
     print(f"Model: {pipeline.model_status}")
     print(f"Outputs written to: {args.out.resolve()}")
+
+def _image_to_data_uri(image: Image.Image) -> str:
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+    return f"data:image/png;base64,{encoded}"
 
 
 if __name__ == "__main__":

@@ -103,6 +103,19 @@ def test_hybrid_checkpoint_save_load_and_inference(tmp_path: Path) -> None:
     assert outputs[0]["boxes"].ndim == 2
 
 
+def test_hybrid_checkpoint_rejects_wrong_class_count(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    model = create_hybrid_faster_rcnn(config)
+    checkpoint = tmp_path / "hybrid.pth"
+    save_hybrid_checkpoint(checkpoint, model, epoch=1, metrics={"loss": 0.0}, config=config)
+    payload = torch.load(checkpoint, map_location="cpu", weights_only=True)
+    payload["num_classes"] = 99
+    torch.save(payload, checkpoint)
+
+    with pytest.raises(RuntimeError, match="class count"):
+        load_hybrid_checkpoint(checkpoint, "cpu")
+
+
 def test_hybrid_backbone_invalid_shape() -> None:
     backbone = CrackXNetHybridBackbone(_config())
 

@@ -34,11 +34,34 @@ class DefectPrediction:
     severity: float
     bbox: BoundingBox
     rationale: str
+    severity_label: str = "LOW"
+    severity_reason: str = "Rule-based severity has not been evaluated."
+    explanation_region: BoundingBox | None = None
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["bbox"] = self.bbox.to_dict()
+        data["explanation_region"] = self.explanation_region.to_dict() if self.explanation_region else None
         return data
+
+
+@dataclass
+class QualityAssessment:
+    status: str
+    reason: str
+    defect_count: int
+    high_severity_count: int
+    medium_severity_count: int
+    low_severity_count: int
+    detected_defect_types: list[str]
+    confidence_summary: dict[str, float | int | None]
+    recommendation: str
+    criteria: list[str]
+    ignored_low_confidence_count: int = 0
+    mode: str = "rule_based"
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 @dataclass
@@ -50,6 +73,7 @@ class InspectionResult:
     max_severity: float
     defects: list[DefectPrediction] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    quality: QualityAssessment | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -60,4 +84,5 @@ class InspectionResult:
             "max_severity": self.max_severity,
             "defects": [defect.to_dict() for defect in self.defects],
             "notes": list(self.notes),
+            "quality": self.quality.to_dict() if self.quality else None,
         }

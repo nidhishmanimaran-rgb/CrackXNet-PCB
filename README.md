@@ -6,7 +6,7 @@ Workflow:
 PCB image -> detection -> class/severity -> explainability heatmap -> PASS/REWORK/REJECT -> report
 ```
 
-Phase 2 implements a real DeepPCB + Faster R-CNN baseline. Phase 3 adds EfficientNet-B0 + CBAM local features. Phase 4 adds ViT global features. Phase 5 adds DDAFF fusion. Phase 6 integrates the hybrid DDAFF + FPN + Faster R-CNN detector path. The app preserves the FastAPI UI, CLI inference, reports, and heuristic demo fallback. It does not claim reproduction of the paper's mAP.
+Phase 2 implements a real DeepPCB + Faster R-CNN baseline. Phase 3 adds EfficientNet-B0 + CBAM local features. Phase 4 adds ViT global features. Phase 5 adds DDAFF fusion. Phase 6 integrates the hybrid DDAFF + FPN + Faster R-CNN detector path. Phase 7 adds explainability and transparent rule-based severity reasoning. Phase 8 adds deterministic PASS/REWORK/REJECT quality assessment. The app preserves the FastAPI UI, CLI inference, reports, and heuristic demo fallback. It does not claim reproduction of the paper's mAP.
 
 ## Classes
 
@@ -29,10 +29,20 @@ pip install -r requirements.txt
 
 ## Dataset
 
-Default dataset path:
+Default dataset path is project-relative:
 
 ```text
-D:\PCB\data\DeepPCB
+data/DeepPCB
+```
+
+Override it without editing source when your dataset lives elsewhere:
+
+```powershell
+$env:DEEPCB_DATA_ROOT = "path\to\DeepPCB"
+```
+
+```bash
+export DEEPCB_DATA_ROOT=/path/to/DeepPCB
 ```
 
 Detected structure:
@@ -65,7 +75,7 @@ x1 y1 x2 y2 class_id
 ## Dataset Check
 
 ```bash
-python scripts\dataset_check.py --data-root D:\PCB\data\DeepPCB
+python scripts/dataset_check.py --data-root data/DeepPCB
 ```
 
 Reports image counts, annotation count, class distribution, train/validation/test counts, dimensions, missing/invalid data, and bbox validity. Annotated preview images are written only under `outputs/dataset_check`.
@@ -75,27 +85,36 @@ Reports image counts, annotation count, class distribution, train/validation/tes
 Full CPU training may be slow:
 
 ```bash
-python scripts\train.py --data-root D:\PCB\data\DeepPCB --epochs 10 --batch-size 2 --lr 0.005 --output outputs\checkpoints --device auto
+python scripts/train.py --mode baseline --data-root data/DeepPCB --epochs 10 --batch-size 2 --lr 0.005 --image-size 640 --output outputs/trained/baseline --device auto
 ```
 
 Smoke test:
 
 ```bash
-python scripts\train.py --data-root D:\PCB\data\DeepPCB --epochs 1 --batch-size 1 --max-samples 1 --no-pretrained
+python scripts/train.py --data-root data/DeepPCB --epochs 1 --batch-size 1 --max-samples 1 --no-pretrained
 ```
 
-Training logs include epoch, loss, validation metrics, checkpoint path, and elapsed time. Checkpoints are saved under `outputs/checkpoints`, with `best.pth` selected by real validation F1.
+Training logs include epoch, loss, validation metrics, checkpoint path, and elapsed time. Real checkpoints belong under `outputs/trained/baseline` or `outputs/trained/hybrid`; `best.pth` is selected by real validation F1. Smoke checkpoint directories remain separate and are not trained detector results.
+
+Each newly saved checkpoint records the complete CLI configuration, seed, and runtime package/environment summary. The training script seeds Python, NumPy, Torch, CUDA (when available), and DataLoader workers. Pretrained EfficientNet/ViT branches apply ImageNet normalization; `--no-pretrained` keeps smoke/training inputs unnormalized and avoids weight downloads.
 
 Hybrid smoke training:
 
 ```bash
-python scripts\train.py --mode hybrid --data-root D:\PCB\data\DeepPCB --epochs 1 --batch-size 1 --max-samples 1 --image-size 64 --fusion-dim 16 --fpn-channels 16 --no-pretrained --output outputs\hybrid_smoke --device cpu
+python scripts/train.py --mode hybrid --data-root data/DeepPCB --epochs 1 --batch-size 1 --max-samples 1 --image-size 64 --fusion-dim 16 --fpn-channels 16 --no-pretrained --output outputs/hybrid_smoke --device cpu
+```
+
+Real hybrid training (CPU-friendly starting configuration; expect it to be slow):
+
+```bash
+python scripts/train.py --mode hybrid --data-root data/DeepPCB --epochs 10 --batch-size 1 --lr 0.001 --image-size 224 --no-pretrained --output outputs/trained/hybrid --device auto
 ```
 
 ## Evaluate
 
 ```bash
-python scripts\evaluate.py --data-root D:\PCB\data\DeepPCB --model outputs\checkpoints\best.pth --output outputs\evaluation
+python scripts/evaluate.py --mode baseline --data-root data/DeepPCB --model outputs/trained/baseline/best.pth --output outputs/evaluation/baseline
+python scripts/evaluate.py --mode hybrid --data-root data/DeepPCB --model outputs/trained/hybrid/best.pth --output outputs/evaluation/hybrid
 ```
 
 Metrics are computed with documented one-to-one same-class IoU matching:
@@ -109,18 +128,26 @@ Metrics are computed with documented one-to-one same-class IoU matching:
 
 Outputs: `metrics.json`, `metrics.csv`, and `summary.txt`.
 
+Independent evaluator cross-check:
+
+```bash
+python scripts\verify_evaluator.py
+```
+
+This deterministic smoke check compares the project evaluator against an independent pure-Python reference for precision, recall, F1, mAP@0.5, and mAP@0.5:0.95. It is not a detector-performance result.
+
 ## Inference
 
 Checkpoint-backed inference:
 
 ```bash
-python scripts\infer.py path\to\pcb.png --model outputs\checkpoints\best.pth --out outputs
+python scripts\infer.py path\to\pcb.png --model outputs\trained\baseline\best.pth --mode baseline --out outputs
 ```
 
 Hybrid checkpoint inference:
 
 ```bash
-python scripts\infer.py path\to\pcb.png --model outputs\hybrid_smoke\best.pth --mode hybrid --out outputs
+python scripts\infer.py path\to\pcb.png --model outputs\trained\hybrid\best.pth --mode hybrid --out outputs
 ```
 
 Explicit demo mode:
@@ -148,10 +175,10 @@ Open:
 http://127.0.0.1:8000
 ```
 
-The app auto-loads `outputs/checkpoints/best.pth` unless overridden:
+The app auto-loads `outputs/trained/baseline/best.pth` when it exists; otherwise it stays in explicit demo mode unless overridden:
 
 ```bash
-set CRACKXNET_CHECKPOINT=D:\PCB\outputs\checkpoints\best.pth
+set CRACKXNET_CHECKPOINT=outputs\trained\baseline\best.pth
 set CRACKXNET_DEVICE=auto
 set CRACKXNET_CONFIDENCE=0.5
 ```
@@ -160,11 +187,25 @@ For hybrid mode:
 
 ```bash
 set CRACKXNET_MODEL_MODE=hybrid
-set CRACKXNET_HYBRID_CHECKPOINT=D:\PCB\outputs\hybrid_smoke\best.pth
+set CRACKXNET_HYBRID_CHECKPOINT=outputs\trained\hybrid\best.pth
 set CRACKXNET_HYBRID_DEVICE=cpu
 ```
 
 The UI shows `DeepPCB Faster R-CNN Baseline` for baseline checkpoints, `CrackXNet Hybrid Detector` for hybrid checkpoints, and `Baseline / Demo Mode` when no checkpoint is loaded.
+
+Only load checkpoints from trusted sources. Checkpoint loading uses PyTorch `weights_only=True`; an invalid configured checkpoint leaves the app available but returns a clear detector-unavailable response instead of silently falling back to demo mode. The local report cache is bounded by `CRACKXNET_REPORT_CACHE_MAX_ENTRIES` (default `100`).
+
+Optional local API hardening:
+
+```bash
+set CRACKXNET_API_KEY=change-me
+set CRACKXNET_RATE_LIMIT_REQUESTS=60
+set CRACKXNET_RATE_LIMIT_WINDOW_SECONDS=60
+```
+
+When `CRACKXNET_API_KEY` is set, `/api/*` endpoints except `/api/health` require `X-API-Key`. The built-in limiter is process-local and suitable for local/demo use; public exposure still requires TLS, a real auth boundary, logging, and infrastructure-level rate limiting.
+
+An example TLS reverse-proxy configuration is provided at `deployment/nginx.example.conf`. Treat it as a starting point only; production deployments still need secret management, persistent logs/storage, monitoring, and an infrastructure-level rate limiter.
 
 ## Architecture
 
@@ -184,6 +225,12 @@ crackxnet_app/
     ddaff.py
     efficientnet_cbam.py
     vit.py
+  explainability/
+    gradcam.py
+  severity/
+    rule_based.py
+  quality/
+    rule_based.py
   models/
     crackxnet_detector.py
   inference/
@@ -210,6 +257,8 @@ tests/
 - Phase 4: ViT global feature module.
 - Phase 5: DDAFF feature fusion.
 - Phase 6: DDAFF + FPN + Faster R-CNN hybrid detector integration.
+- Phase 7: Explainability head + rule-based defect severity reasoning.
+- Phase 8: Rule-based PASS/REWORK/REJECT quality assessment.
 
 ## Phase 3 Local Features
 
@@ -384,9 +433,103 @@ detector output boxes/labels/scores
 
 Phase 6 integrates the architecture and checkpoint path. Full-scale hybrid training and real evaluation remain future work.
 
+## Phase 7 Explainability And Severity
+
+Phase 7 extends inspection output:
+
+```text
+Detector output
+  -> Explainability Head
+  -> Defect Reasoning / Severity
+  -> report/API/UI fields
+```
+
+Explainability uses Grad-CAM-style gradients from actual detector scores. For the hybrid detector, the target layer is:
+
+```text
+model.backbone.fusion.norm
+```
+
+This layer is immediately after DDAFF fusion and before FPN, so the heatmap reflects the fused local/global representation used by the detector. The explainer sums the top-k detection scores, backpropagates to the target layer, normalizes the heatmap to `[0, 1]`, resizes it to the input image, and returns both heatmap and overlay. If there are no detections above threshold, the explainer returns an empty heatmap and documents that no Grad-CAM target was selected.
+
+Severity is deterministic and rule-based, not learned. The severity head uses:
+
+- defect confidence
+- bounding-box area ratio
+- bounding-box elongation
+
+Outputs:
+
+- `LOW`
+- `MEDIUM`
+- `HIGH`
+
+Configuration is centralized through `SeverityConfig` and `ExplainabilityConfig` in `crackxnet_app/config.py`:
+
+- `CRACKXNET_SEVERITY_MODE`
+- `CRACKXNET_SEVERITY_LOW_MAX`
+- `CRACKXNET_SEVERITY_MEDIUM_MAX`
+- `CRACKXNET_SEVERITY_AREA_WEIGHT`
+- `CRACKXNET_SEVERITY_CONFIDENCE_WEIGHT`
+- `CRACKXNET_SEVERITY_ELONGATION_WEIGHT`
+- `CRACKXNET_EXPLAINABILITY_ENABLED`
+- `CRACKXNET_EXPLAINABILITY_METHOD`
+- `CRACKXNET_EXPLAINABILITY_TOP_K`
+
+Run the Phase 7 tests:
+
+```bash
+python -m pytest tests\test_phase7_explainability_severity.py -q
+```
+
+Phase 7 implements explainability and transparent severity reasoning. Phase 8 will implement or refine PASS/REWORK/REJECT quality assessment.
+
+## Phase 8 Quality Assessment
+
+Phase 8 adds a deterministic quality layer after detection, explainability, and severity:
+
+```text
+detected defects
+  -> LOW / MEDIUM / HIGH severity
+  -> rule-based quality assessment
+  -> PASS / REWORK / REJECT
+```
+
+Default meanings:
+
+- `PASS`: no configured quality issue was found among detections that meet the confidence threshold.
+- `REWORK`: one or more defects require correction, but reject rules were not triggered.
+- `REJECT`: high-severity defects or excessive defect count triggered a reject rule.
+
+Default priority order:
+
+1. `REJECT` if high-severity defect count meets the configured reject threshold.
+2. `REJECT` if total considered defects meet the configured defect-count threshold.
+3. `REWORK` if medium-severity defect count meets the configured rework threshold.
+4. `REWORK` if accumulated low-severity defects meet the configured rework threshold.
+5. `PASS` otherwise.
+
+The quality assessor ignores detections below `CRACKXNET_QUALITY_MIN_CONFIDENCE` for the final quality decision, but reports how many were ignored. This is an engineering rule layer, not a trained quality classifier.
+
+Configuration is centralized through `QualityConfig` in `crackxnet_app/config.py`:
+
+- `CRACKXNET_QUALITY_MODE`
+- `CRACKXNET_QUALITY_MIN_CONFIDENCE`
+- `CRACKXNET_QUALITY_REJECT_HIGH_COUNT`
+- `CRACKXNET_QUALITY_REJECT_DEFECT_COUNT`
+- `CRACKXNET_QUALITY_REWORK_MEDIUM_COUNT`
+- `CRACKXNET_QUALITY_REWORK_LOW_COUNT`
+- `CRACKXNET_QUALITY_PASS_ON_NO_DETECTIONS`
+
+Run the Phase 8 tests:
+
+```bash
+python -m pytest tests\test_phase8_quality_assessment.py -q
+```
+
 ## Troubleshooting
 
-- If `D:\PCB\data\DeepPCB` is missing, place or link the local DeepPCB dataset there.
+- If `data/DeepPCB` is missing, place or link the local DeepPCB dataset there, or set `DEEPCB_DATA_ROOT`.
 - CPU is supported but slow; use `--device cuda` only when CUDA is available.
 - If a checkpoint is missing or invalid, CLI inference exits with a clear error.
 - Dataset and model weights are ignored by `.gitignore`; do not commit DeepPCB data or `.pth` files.

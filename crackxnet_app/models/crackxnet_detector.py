@@ -17,7 +17,7 @@ from crackxnet_app.config import (
     LocalFeatureConfig,
     NUM_DETECTION_CLASSES,
 )
-from crackxnet_app.deeppcb.model import get_device
+from crackxnet_app.deeppcb.model import get_device, load_checkpoint_payload
 from crackxnet_app.features.ddaff import DynamicDefectAwareFeatureFusion
 from crackxnet_app.features.efficientnet_cbam import EfficientNetCBAMLocalFeatureExtractor
 from crackxnet_app.features.vit import ViTGlobalFeatureExtractor, VIT_VARIANTS
@@ -153,6 +153,7 @@ def save_hybrid_checkpoint(
     epoch: int = 0,
     metrics: dict[str, Any] | None = None,
     config: HybridDetectorConfig | None = None,
+    training_config: dict[str, Any] | None = None,
 ) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -169,6 +170,7 @@ def save_hybrid_checkpoint(
         "model_name": "crackxnet_hybrid_faster_rcnn",
         "model_mode": "hybrid",
         "hybrid_config": hybrid_config_to_dict(config),
+        "training_config": training_config or {},
     }
     if optimizer is not None:
         payload["optimizer_state"] = optimizer.state_dict()
@@ -180,11 +182,16 @@ def load_hybrid_checkpoint(path: str | Path, device: str = "auto") -> tuple[Fast
     if not path.exists():
         raise FileNotFoundError(f"Hybrid checkpoint not found: {path}")
     torch_device = get_device(device)
-    payload = torch.load(path, map_location=torch_device)
+    payload = load_checkpoint_payload(path, torch_device)
     if payload.get("model_mode") != "hybrid" or "hybrid_config" not in payload:
         raise RuntimeError(f"Invalid hybrid checkpoint: {path}")
+    num_classes = int(payload.get("num_classes", NUM_DETECTION_CLASSES))
+    if num_classes != NUM_DETECTION_CLASSES:
+        raise RuntimeError(
+            f"Invalid hybrid checkpoint class count: expected {NUM_DETECTION_CLASSES}, got {num_classes}."
+        )
     config = hybrid_config_from_dict(payload["hybrid_config"], device=str(torch_device))
-    model = create_hybrid_faster_rcnn(config, num_classes=int(payload.get("num_classes", NUM_DETECTION_CLASSES)))
+    model = create_hybrid_faster_rcnn(config, num_classes=num_classes)
     model.load_state_dict(payload["model_state"])
     model.to(torch_device)
     model.eval()

@@ -85,3 +85,22 @@ def test_local_feature_config_values() -> None:
     assert config.input_size == 128
     assert config.cbam_reduction_ratio == 8
     assert config.device == "cpu"
+
+
+def test_pretrained_local_extractor_normalizes_inputs(monkeypatch) -> None:
+    class DummyBackbone(nn.Module):
+        output_channels = 1280
+
+        def __init__(self, pretrained: bool) -> None:
+            super().__init__()
+            self.seen = None
+
+        def forward(self, image: torch.Tensor) -> torch.Tensor:
+            self.seen = image
+            return torch.ones((image.shape[0], 1280, 1, 1), device=image.device)
+
+    monkeypatch.setattr(efficientnet_cbam, "EfficientNetB0FeatureBackbone", DummyBackbone)
+    extractor = EfficientNetCBAMLocalFeatureExtractor(pretrained=True, input_size=32, device="cpu")
+    extractor(torch.zeros(1, 3, 32, 32))
+
+    assert torch.isclose(extractor.backbone.seen[0, 0, 0, 0], torch.tensor(-0.485 / 0.229))

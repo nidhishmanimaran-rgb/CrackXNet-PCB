@@ -1,8 +1,10 @@
-fastapi>=0.115.6,<1.0
-uvicorn[standard]>=0.32.1,<1.0
+# Tested direct dependency versions. Install the matching CPU/CUDA PyTorch build
+# from the official PyTorch index when your platform requires it.
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
 python-multipart==0.0.20
-pillow>=12.1.0,<13.0
-numpy>=2.3.0,<3.0
-pytest>=8.3.4,<9.0
-torch>=2.14.0,<3.0
-torchvision>=0.29.0,<1.0
+pillow==12.3.0
+numpy==2.4.6
+pytest==8.3.4
+torch==2.14.0
+torchvision==0.29.0

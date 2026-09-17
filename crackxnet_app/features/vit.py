@@ -10,7 +10,7 @@ from torchvision.models import ViT_B_16_Weights, ViT_B_32_Weights, vit_b_16, vit
 from torchvision.transforms import functional as F
 
 from crackxnet_app.config import DEFAULT_GLOBAL_FEATURE_CONFIG, GlobalFeatureConfig
-from crackxnet_app.deeppcb.model import get_device
+from crackxnet_app.deeppcb.model import get_device, load_checkpoint_payload
 from crackxnet_app.features.cbam import validate_feature_tensor
 
 
@@ -98,6 +98,7 @@ class ViTGlobalFeatureExtractor(nn.Module):
         self.input_size = input_size if input_size is not None else base_config.input_size
         self.device = get_device(device or base_config.device)
         use_pretrained = base_config.vit_pretrained if pretrained is None else pretrained
+        self.normalize_inputs = use_pretrained
         expected_patch = VIT_VARIANTS[self.variant].patch_size if self.variant in VIT_VARIANTS else None
         configured_patch = patch_size if patch_size is not None else base_config.patch_size
         if configured_patch is not None and expected_patch is not None and configured_patch != expected_patch:
@@ -118,6 +119,8 @@ class ViTGlobalFeatureExtractor(nn.Module):
     def forward(self, image_tensor: torch.Tensor) -> GlobalFeatureOutput:
         validate_feature_tensor(image_tensor, module_name=self.__class__.__name__)
         image_tensor = image_tensor.to(self.device)
+        if self.normalize_inputs:
+            image_tensor = _imagenet_normalize(image_tensor)
         class_token, patch_tokens = self.backbone(image_tensor)
         pooled = patch_tokens.mean(dim=1)
         return GlobalFeatureOutput(
@@ -144,6 +147,12 @@ class ViTGlobalFeatureExtractor(nn.Module):
         path = Path(checkpoint_path)
         if not path.exists():
             raise FileNotFoundError(f"ViT feature checkpoint not found: {path}")
-        payload = torch.load(path, map_location=self.device)
+        payload = load_checkpoint_payload(path, self.device)
         state = payload.get("model_state", payload) if isinstance(payload, dict) else payload
         self.load_state_dict(state)
+
+
+def _imagenet_normalize(image_tensor: torch.Tensor) -> torch.Tensor:
+    mean = torch.tensor((0.485, 0.456, 0.406), device=image_tensor.device).view(1, 3, 1, 1)
+    std = torch.tensor((0.229, 0.224, 0.225), device=image_tensor.device).view(1, 3, 1, 1)
+    return (image_tensor - mean) / std
