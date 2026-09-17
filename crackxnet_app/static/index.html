@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CrackXNet PCB Inspector</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <section class="toolbar">
+      <div>
+        <h1>CrackXNet PCB Inspector</h1>
+        <p>End-to-end MVP with modular baseline detection and transparent model notes.</p>
+      </div>
+      <label class="upload">
+        <input id="fileInput" type="file" accept="image/*">
+        <span>Upload PCB Image</span>
+      </label>
+    </section>
+
+    <section class="status-row">
+      <div class="metric">
+        <span>Decision</span>
+        <strong id="decision">-</strong>
+      </div>
+      <div class="metric">
+        <span>Defects</span>
+        <strong id="defectCount">0</strong>
+      </div>
+      <div class="metric">
+        <span>Max Severity</span>
+        <strong id="maxSeverity">0.000</strong>
+      </div>
+      <a id="reportLink" class="report disabled" href="#" download>Download Report</a>
+    </section>
+
+    <section class="viewer">
+      <div class="panel">
+        <h2>Detection Overlay</h2>
+        <div class="image-stage"><img id="overlay" alt="Detection overlay"></div>
+      </div>
+      <div class="panel">
+        <h2>Explainability Heatmap</h2>
+        <div class="image-stage"><img id="heatmap" alt="Heatmap"></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Findings</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Class</th>
+              <th>Confidence</th>
+              <th>Severity</th>
+              <th>Box</th>
+              <th>Explanation</th>
+            </tr>
+          </thead>
+          <tbody id="findings">
+            <tr><td colspan="5">Upload an image to start inspection.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p id="message" class="message"></p>
+    </section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
