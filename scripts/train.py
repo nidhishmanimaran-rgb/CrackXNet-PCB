@@ -12,16 +12,18 @@ if str(ROOT) not in sys.path:
 import torch
 from torch.utils.data import DataLoader
 
-from crackxnet_app.config import DEFAULT_DATA_ROOT
+from crackxnet_app.config import DEFAULT_DATA_ROOT, HybridDetectorConfig
 from crackxnet_app.deeppcb.dataset import train_val_test_samples
 from crackxnet_app.deeppcb.evaluation import full_metrics
 from crackxnet_app.deeppcb.model import create_faster_rcnn, get_device, save_checkpoint
 from crackxnet_app.deeppcb.torch_dataset import DeepPCBTorchDataset
 from crackxnet_app.deeppcb.transforms import DeepPCBTransforms, TransformConfig, collate_fn
+from crackxnet_app.models.crackxnet_detector import create_hybrid_faster_rcnn, load_hybrid_checkpoint, save_hybrid_checkpoint
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Train a DeepPCB Faster R-CNN baseline.")
+    parser = argparse.ArgumentParser(description="Train a DeepPCB Faster R-CNN baseline or CrackXNet hybrid detector.")
+    parser.add_argument("--mode", choices=["baseline", "hybrid"], default="baseline")
     parser.add_argument("--data-root", type=Path, default=DEFAULT_DATA_ROOT)
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--batch-size", type=int, default=2)
@@ -36,6 +38,8 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--max-samples", type=int, help="Limit train/val/test samples for smoke tests.")
     parser.add_argument("--no-pretrained", action="store_true", help="Do not initialize from COCO weights.")
+    parser.add_argument("--fusion-dim", type=int, default=64)
+    parser.add_argument("--fpn-channels", type=int, default=64)
     args = parser.parse_args()
 
     args.output.mkdir(parents=True, exist_ok=True)
@@ -58,17 +62,41 @@ def main() -> None:
         collate_fn=collate_fn,
     )
 
-    model = create_faster_rcnn(pretrained=not args.no_pretrained, image_size=args.image_size).to(device)
-    optimizer = torch.optim.SGD([p for p in model.parameters() if p.requires_grad], lr=args.lr, momentum=0.9, weight_decay=0.0005)
+    hybrid_config = HybridDetectorConfig(
+        enabled=args.mode == "hybrid",
+        checkpoint_path=args.output / "best.pth",
+        image_size=args.image_size,
+        fusion_dim=args.fusion_dim,
+        fpn_out_channels=args.fpn_channels,
+        local_input_size=args.image_size,
+        vit_input_size=args.image_size,
+        vit_variant="vit_b_16",
+        local_pretrained=not args.no_pretrained,
+        vit_pretrained=not args.no_pretrained,
+        confidence_threshold=args.confidence_threshold,
+        device=str(device),
+    )
+    if args.mode == "hybrid":
+        model = create_hybrid_faster_rcnn(hybrid_config).to(device)
+    else:
+        model = create_faster_rcnn(pretrained=not args.no_pretrained, image_size=args.image_size).to(device)
     start_epoch = 0
     best_f1 = -1.0
+    optimizer_state = None
     if args.resume:
-        payload = torch.load(args.resume, map_location=device)
-        model.load_state_dict(payload["model_state"])
+        if args.mode == "hybrid":
+            model, payload = load_hybrid_checkpoint(args.resume, str(device))
+            model.to(device)
+        else:
+            payload = torch.load(args.resume, map_location=device)
+            model.load_state_dict(payload["model_state"])
         if "optimizer_state" in payload:
-            optimizer.load_state_dict(payload["optimizer_state"])
+            optimizer_state = payload["optimizer_state"]
         start_epoch = int(payload.get("epoch", 0))
         best_f1 = float(payload.get("metrics", {}).get("f1", -1.0))
+    optimizer = torch.optim.SGD([p for p in model.parameters() if p.requires_grad], lr=args.lr, momentum=0.9, weight_decay=0.0005)
+    if optimizer_state is not None:
+        optimizer.load_state_dict(optimizer_state)
 
     for epoch in range(start_epoch + 1, args.epochs + 1):
         started = time.time()
@@ -89,10 +117,16 @@ def main() -> None:
         metrics = _evaluate_loader(model, val_loader, device, args.confidence_threshold)
         avg_loss = total_loss / max(1, batches)
         checkpoint = args.output / f"epoch_{epoch:03d}.pth"
-        save_checkpoint(checkpoint, model, optimizer, epoch, {"loss": avg_loss, **metrics}, image_size=args.image_size)
+        if args.mode == "hybrid":
+            save_hybrid_checkpoint(checkpoint, model, optimizer, epoch, {"loss": avg_loss, **metrics}, hybrid_config)
+        else:
+            save_checkpoint(checkpoint, model, optimizer, epoch, {"loss": avg_loss, **metrics}, image_size=args.image_size)
         if metrics["f1"] > best_f1:
             best_f1 = metrics["f1"]
-            save_checkpoint(args.output / "best.pth", model, optimizer, epoch, {"loss": avg_loss, **metrics}, image_size=args.image_size)
+            if args.mode == "hybrid":
+                save_hybrid_checkpoint(args.output / "best.pth", model, optimizer, epoch, {"loss": avg_loss, **metrics}, hybrid_config)
+            else:
+                save_checkpoint(args.output / "best.pth", model, optimizer, epoch, {"loss": avg_loss, **metrics}, image_size=args.image_size)
         elapsed = time.time() - started
         print(
             f"epoch={epoch} loss={avg_loss:.6f} precision={metrics['precision']:.6f} "

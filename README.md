@@ -6,7 +6,7 @@ Workflow:
 PCB image -> detection -> class/severity -> explainability heatmap -> PASS/REWORK/REJECT -> report
 ```
 
-Phase 2 implements a real DeepPCB + Faster R-CNN baseline. Phase 3 adds the EfficientNet-B0 + CBAM local feature extraction branch. Phase 4 adds the Vision Transformer global feature branch. It preserves the FastAPI UI, CLI inference, reports, and the heuristic detector as explicit demo/fallback mode. It does not implement DDAFF, and it does not claim reproduction of the paper's mAP.
+Phase 2 implements a real DeepPCB + Faster R-CNN baseline. Phase 3 adds EfficientNet-B0 + CBAM local features. Phase 4 adds ViT global features. Phase 5 adds DDAFF fusion. Phase 6 integrates the hybrid DDAFF + FPN + Faster R-CNN detector path. The app preserves the FastAPI UI, CLI inference, reports, and heuristic demo fallback. It does not claim reproduction of the paper's mAP.
 
 ## Classes
 
@@ -86,6 +86,12 @@ python scripts\train.py --data-root D:\PCB\data\DeepPCB --epochs 1 --batch-size 
 
 Training logs include epoch, loss, validation metrics, checkpoint path, and elapsed time. Checkpoints are saved under `outputs/checkpoints`, with `best.pth` selected by real validation F1.
 
+Hybrid smoke training:
+
+```bash
+python scripts\train.py --mode hybrid --data-root D:\PCB\data\DeepPCB --epochs 1 --batch-size 1 --max-samples 1 --image-size 64 --fusion-dim 16 --fpn-channels 16 --no-pretrained --output outputs\hybrid_smoke --device cpu
+```
+
 ## Evaluate
 
 ```bash
@@ -109,6 +115,12 @@ Checkpoint-backed inference:
 
 ```bash
 python scripts\infer.py path\to\pcb.png --model outputs\checkpoints\best.pth --out outputs
+```
+
+Hybrid checkpoint inference:
+
+```bash
+python scripts\infer.py path\to\pcb.png --model outputs\hybrid_smoke\best.pth --mode hybrid --out outputs
 ```
 
 Explicit demo mode:
@@ -144,7 +156,15 @@ set CRACKXNET_DEVICE=auto
 set CRACKXNET_CONFIDENCE=0.5
 ```
 
-The UI shows `DeepPCB Faster R-CNN` when a trained checkpoint is loaded. With no checkpoint, it shows `Baseline / Demo Mode`.
+For hybrid mode:
+
+```bash
+set CRACKXNET_MODEL_MODE=hybrid
+set CRACKXNET_HYBRID_CHECKPOINT=D:\PCB\outputs\hybrid_smoke\best.pth
+set CRACKXNET_HYBRID_DEVICE=cpu
+```
+
+The UI shows `DeepPCB Faster R-CNN Baseline` for baseline checkpoints, `CrackXNet Hybrid Detector` for hybrid checkpoints, and `Baseline / Demo Mode` when no checkpoint is loaded.
 
 ## Architecture
 
@@ -164,6 +184,8 @@ crackxnet_app/
     ddaff.py
     efficientnet_cbam.py
     vit.py
+  models/
+    crackxnet_detector.py
   inference/
     baseline_detector.py
     faster_rcnn_detector.py
@@ -185,7 +207,9 @@ tests/
 
 - Phase 2: DeepPCB + Faster R-CNN baseline.
 - Phase 3: EfficientNet-B0 + CBAM local feature module.
-- Later phases: ViT global features and DDAFF fusion.
+- Phase 4: ViT global feature module.
+- Phase 5: DDAFF feature fusion.
+- Phase 6: DDAFF + FPN + Faster R-CNN hybrid detector integration.
 
 ## Phase 3 Local Features
 
@@ -320,7 +344,45 @@ Smoke-test flow:
 real PCB image -> EfficientNet-B0 + CBAM -> ViT -> DDAFF
 ```
 
-Phase 5 implements feature fusion only. DDAFF is not connected to the production Faster R-CNN detector yet.
+## Phase 6 Hybrid Detector
+
+Phase 6 connects the fused representation to a detector:
+
+```text
+EfficientNet-B0 + CBAM
+        +
+       ViT
+        |
+      DDAFF
+        |
+       FPN
+        |
+  Faster R-CNN
+```
+
+The baseline and hybrid detector paths are selectable:
+
+- `baseline`: torchvision Faster R-CNN MobileNetV3 FPN baseline from Phase 2.
+- `hybrid`: EfficientNet-B0 + CBAM, ViT, DDAFF, FPN, Faster R-CNN.
+
+Hybrid implementation location:
+
+```text
+crackxnet_app/models/crackxnet_detector.py
+```
+
+Smoke-test tensor flow with `image_size=64`:
+
+```text
+input:          (batch, 3, 64, 64)
+local:          (batch, 1280, 2, 2)
+ViT tokens:     (batch, 16, 768)
+DDAFF fused:    (batch, fusion_dim, 2, 2)
+FPN output:     (batch, fpn_channels, 2, 2)
+detector output boxes/labels/scores
+```
+
+Phase 6 integrates the architecture and checkpoint path. Full-scale hybrid training and real evaluation remain future work.
 
 ## Troubleshooting
 

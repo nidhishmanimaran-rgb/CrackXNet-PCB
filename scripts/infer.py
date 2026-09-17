@@ -19,7 +19,8 @@ from crackxnet_app.reporting.html_report import render_html_report
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run CrackXNet MVP inference on one PCB image.")
     parser.add_argument("image", type=Path, help="Input PCB image path.")
-    parser.add_argument("--model", type=Path, help="Faster R-CNN checkpoint path. If omitted, explicit demo mode is used.")
+    parser.add_argument("--model", type=Path, help="Checkpoint path. If omitted, explicit demo mode is used.")
+    parser.add_argument("--mode", choices=["baseline", "hybrid"], default="baseline")
     parser.add_argument("--out", type=Path, default=Path("outputs"), help="Output directory.")
     parser.add_argument("--device", default="auto")
     parser.add_argument("--confidence-threshold", type=float, default=0.5)
@@ -37,6 +38,7 @@ def main() -> None:
         confidence_threshold=args.confidence_threshold,
         device=args.device,
         force_demo=args.model is None,
+        model_mode=args.mode,
     )
     outputs = pipeline.inspect(image, filename=args.image.name)
 

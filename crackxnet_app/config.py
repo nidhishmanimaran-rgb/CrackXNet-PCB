@@ -26,6 +26,7 @@ DEFAULT_CHECKPOINT_PATH = Path(
 )
 DEFAULT_DEVICE = os.getenv("CRACKXNET_DEVICE", "auto")
 DEFAULT_CONFIDENCE_THRESHOLD = float(os.getenv("CRACKXNET_CONFIDENCE", "0.5"))
+DEFAULT_MODEL_MODE = os.getenv("CRACKXNET_MODEL_MODE", "baseline")
 
 
 @dataclass(frozen=True)
@@ -87,3 +88,24 @@ class DDAFFConfig:
 
 
 DEFAULT_DDAFF_CONFIG = DDAFFConfig()
+
+
+@dataclass(frozen=True)
+class HybridDetectorConfig:
+    enabled: bool = os.getenv("CRACKXNET_HYBRID_ENABLED", "0") == "1"
+    checkpoint_path: Path = Path(
+        os.getenv("CRACKXNET_HYBRID_CHECKPOINT", PROJECT_ROOT / "outputs" / "hybrid_checkpoints" / "best.pth")
+    )
+    image_size: int = int(os.getenv("CRACKXNET_HYBRID_IMAGE_SIZE", "224"))
+    fusion_dim: int = int(os.getenv("CRACKXNET_HYBRID_FUSION_DIM", "256"))
+    fpn_out_channels: int = int(os.getenv("CRACKXNET_HYBRID_FPN_CHANNELS", "256"))
+    local_input_size: int = int(os.getenv("CRACKXNET_HYBRID_LOCAL_SIZE", "224"))
+    vit_input_size: int = int(os.getenv("CRACKXNET_HYBRID_VIT_SIZE", "224"))
+    vit_variant: str = os.getenv("CRACKXNET_HYBRID_VIT_VARIANT", "vit_b_16")
+    local_pretrained: bool = os.getenv("CRACKXNET_HYBRID_LOCAL_PRETRAINED", "0") == "1"
+    vit_pretrained: bool = os.getenv("CRACKXNET_HYBRID_VIT_PRETRAINED", "0") == "1"
+    confidence_threshold: float = float(os.getenv("CRACKXNET_HYBRID_CONFIDENCE", str(DEFAULT_CONFIDENCE_THRESHOLD)))
+    device: str = os.getenv("CRACKXNET_HYBRID_DEVICE", DEFAULT_DEVICE)
+
+
+DEFAULT_HYBRID_DETECTOR_CONFIG = HybridDetectorConfig()

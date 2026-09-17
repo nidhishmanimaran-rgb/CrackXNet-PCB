@@ -4,29 +4,31 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import torch
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image
 from torchvision.transforms import functional as F
 
 from crackxnet_app.config import CLASS_ID_TO_NAME, DEFAULT_CONFIDENCE_THRESHOLD, DEFAULT_DEVICE
-from crackxnet_app.deeppcb.model import get_device, load_checkpoint
+from crackxnet_app.inference.faster_rcnn_detector import _heatmap_from_defects, _severity_from_box
+from crackxnet_app.models.crackxnet_detector import load_hybrid_checkpoint
 from crackxnet_app.schemas import BoundingBox, DefectPrediction
 
 
 @dataclass
-class FasterRCNNInspectionDetector:
+class HybridInspectionDetector:
     checkpoint_path: Path
     confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD
     device: str = DEFAULT_DEVICE
-    image_size: int = 640
 
     def __post_init__(self) -> None:
-        self.torch_device = get_device(self.device)
-        self.model, self.checkpoint = load_checkpoint(self.checkpoint_path, self.torch_device, pretrained=False)
+        self.model, self.checkpoint = load_hybrid_checkpoint(self.checkpoint_path, self.device)
+        self.torch_device = next(self.model.parameters()).device
+        config = self.checkpoint["hybrid_config"]
+        self.image_size = int(config.get("image_size", 224))
         self.model.eval()
 
     @property
     def status(self) -> str:
-        return "DeepPCB Faster R-CNN Baseline"
+        return "CrackXNet Hybrid Detector"
 
     def detect(self, image: Image.Image) -> tuple[list[DefectPrediction], Image.Image]:
         original = image.convert("RGB")
@@ -61,24 +63,7 @@ class FasterRCNNInspectionDetector:
                     confidence=round(confidence, 3),
                     severity=round(severity, 3),
                     bbox=bbox,
-                    rationale="Faster R-CNN prediction from the loaded DeepPCB checkpoint.",
+                    rationale="Hybrid CrackXNet Faster R-CNN prediction from the loaded checkpoint.",
                 )
             )
-        heatmap = _heatmap_from_defects((width, height), defects)
-        return defects, heatmap
-
-
-def _severity_from_box(bbox: BoundingBox, image_area: int, confidence: float) -> float:
-    area_ratio = bbox.area / max(1, image_area)
-    longest = max(bbox.width, bbox.height) / max(1, int(image_area**0.5))
-    return min(1.0, 0.12 + area_ratio * 60.0 + longest * 0.35 + confidence * 0.18)
-
-
-def _heatmap_from_defects(size: tuple[int, int], defects: list[DefectPrediction]) -> Image.Image:
-    heat = Image.new("L", size, 0)
-    draw = ImageDraw.Draw(heat)
-    for defect in defects:
-        value = int(80 + 175 * max(0.0, min(1.0, defect.confidence)))
-        b = defect.bbox
-        draw.rectangle([b.x1, b.y1, b.x2, b.y2], fill=value)
-    return heat.filter(ImageFilter.GaussianBlur(radius=16))
+        return defects, _heatmap_from_defects((width, height), defects)
