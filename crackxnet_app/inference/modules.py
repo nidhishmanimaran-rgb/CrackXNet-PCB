@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 import numpy as np
 import torch
 
 from crackxnet_app.features.efficientnet_cbam import LocalFeatureOutput
+from crackxnet_app.features.vit import GlobalFeatureOutput
 
 
 class LocalFeatureExtractor(Protocol):
@@ -14,9 +15,16 @@ class LocalFeatureExtractor(Protocol):
         """Extract local PCB features."""
 
 
+@runtime_checkable
 class TorchLocalFeatureExtractor(Protocol):
     def extract_local_features(self, image_tensor: torch.Tensor) -> LocalFeatureOutput:
         """Extract local spatial PCB features for future fusion."""
+
+
+@runtime_checkable
+class TorchGlobalFeatureExtractor(Protocol):
+    def extract_global_features(self, image_tensor: torch.Tensor) -> GlobalFeatureOutput:
+        """Extract global contextual PCB features for future fusion."""
 
 
 class GlobalFeatureExtractor(Protocol):

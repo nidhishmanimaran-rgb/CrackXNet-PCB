@@ -6,7 +6,7 @@ Workflow:
 PCB image -> detection -> class/severity -> explainability heatmap -> PASS/REWORK/REJECT -> report
 ```
 
-Phase 2 implements a real DeepPCB + Faster R-CNN baseline. Phase 3 adds the EfficientNet-B0 + CBAM local feature extraction branch. It preserves the FastAPI UI, CLI inference, reports, and the heuristic detector as explicit demo/fallback mode. It does not implement ViT or DDAFF, and it does not claim reproduction of the paper's mAP.
+Phase 2 implements a real DeepPCB + Faster R-CNN baseline. Phase 3 adds the EfficientNet-B0 + CBAM local feature extraction branch. Phase 4 adds the Vision Transformer global feature branch. It preserves the FastAPI UI, CLI inference, reports, and the heuristic detector as explicit demo/fallback mode. It does not implement DDAFF, and it does not claim reproduction of the paper's mAP.
 
 ## Classes
 
@@ -162,6 +162,7 @@ crackxnet_app/
   features/
     cbam.py
     efficientnet_cbam.py
+    vit.py
   inference/
     baseline_detector.py
     faster_rcnn_detector.py
@@ -221,6 +222,50 @@ Run the feature tests:
 
 ```bash
 python -m pytest tests\test_phase3_local_features.py
+```
+
+## Phase 4 Global Features
+
+The ViT branch extracts global PCB context independently from the Faster R-CNN detector and the EfficientNet-B0 + CBAM local branch. It is intentionally modular so Phase 5 can fuse local and global representations with DDAFF.
+
+Module location:
+
+```text
+crackxnet_app/features/vit.py
+```
+
+Feature flow:
+
+```text
+NCHW image tensor
+  -> ViT patch embedding
+  -> transformer encoder
+  -> GlobalFeatureOutput(class_token, patch_tokens, pooled_features)
+```
+
+For `vit_b_16` with `(batch, 3, 224, 224)` input:
+
+- `class_token`: `(batch, 768)`
+- `patch_tokens`: `(batch, 196, 768)`
+- `pooled_features`: `(batch, 768)`
+
+For smoke tests using `input_size=64`, `vit_b_16` returns `16` patch tokens.
+
+Configuration is centralized through `GlobalFeatureConfig` in `crackxnet_app/config.py`:
+
+- `CRACKXNET_VIT_VARIANT`
+- `CRACKXNET_VIT_PRETRAINED`
+- `CRACKXNET_VIT_INPUT_SIZE`
+- `CRACKXNET_VIT_PATCH_SIZE`
+- `CRACKXNET_VIT_DEVICE`
+- `CRACKXNET_VIT_CHECKPOINT`
+
+Supported variants are `vit_b_16` and `vit_b_32`. `pretrained=False` passes `weights=None` to torchvision and does not request pretrained weights. Phase 4 adds ViT only; DDAFF remains reserved for Phase 5.
+
+Run the ViT feature tests:
+
+```bash
+python -m pytest tests\test_phase4_vit_features.py
 ```
 
 ## Troubleshooting

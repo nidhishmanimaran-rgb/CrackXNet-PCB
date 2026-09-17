@@ -55,3 +55,24 @@ class LocalFeatureConfig:
 
 
 DEFAULT_LOCAL_FEATURE_CONFIG = LocalFeatureConfig()
+
+
+@dataclass(frozen=True)
+class GlobalFeatureConfig:
+    vit_variant: str = os.getenv("CRACKXNET_VIT_VARIANT", "vit_b_16")
+    vit_pretrained: bool = os.getenv("CRACKXNET_VIT_PRETRAINED", "0") == "1"
+    input_size: int = int(os.getenv("CRACKXNET_VIT_INPUT_SIZE", "224"))
+    patch_size: int | None = (
+        int(os.environ["CRACKXNET_VIT_PATCH_SIZE"])
+        if os.getenv("CRACKXNET_VIT_PATCH_SIZE")
+        else None
+    )
+    device: str = os.getenv("CRACKXNET_VIT_DEVICE", DEFAULT_DEVICE)
+    checkpoint_path: Path | None = (
+        Path(os.environ["CRACKXNET_VIT_CHECKPOINT"])
+        if os.getenv("CRACKXNET_VIT_CHECKPOINT")
+        else None
+    )
+
+
+DEFAULT_GLOBAL_FEATURE_CONFIG = GlobalFeatureConfig()
