@@ -4,11 +4,19 @@ from dataclasses import dataclass
 from typing import Protocol
 
 import numpy as np
+import torch
+
+from crackxnet_app.features.efficientnet_cbam import LocalFeatureOutput
 
 
 class LocalFeatureExtractor(Protocol):
     def extract(self, image: np.ndarray) -> np.ndarray:
         """Extract local PCB features."""
+
+
+class TorchLocalFeatureExtractor(Protocol):
+    def extract_local_features(self, image_tensor: torch.Tensor) -> LocalFeatureOutput:
+        """Extract local spatial PCB features for future fusion."""
 
 
 class GlobalFeatureExtractor(Protocol):

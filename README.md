@@ -6,7 +6,7 @@ Workflow:
 PCB image -> detection -> class/severity -> explainability heatmap -> PASS/REWORK/REJECT -> report
 ```
 
-Phase 2 implements a real DeepPCB + Faster R-CNN baseline. It preserves the FastAPI UI, CLI inference, reports, and the heuristic detector as explicit demo/fallback mode. It does not implement EfficientNet-B0 + CBAM, ViT, or DDAFF, and it does not claim reproduction of the paper's mAP.
+Phase 2 implements a real DeepPCB + Faster R-CNN baseline. Phase 3 adds the EfficientNet-B0 + CBAM local feature extraction branch. It preserves the FastAPI UI, CLI inference, reports, and the heuristic detector as explicit demo/fallback mode. It does not implement ViT or DDAFF, and it does not claim reproduction of the paper's mAP.
 
 ## Classes
 
@@ -159,6 +159,9 @@ crackxnet_app/
     torch_dataset.py
     model.py
     evaluation.py
+  features/
+    cbam.py
+    efficientnet_cbam.py
   inference/
     baseline_detector.py
     faster_rcnn_detector.py
@@ -181,6 +184,44 @@ tests/
 - Phase 2: DeepPCB + Faster R-CNN baseline.
 - Phase 3: EfficientNet-B0 + CBAM local feature module.
 - Later phases: ViT global features and DDAFF fusion.
+
+## Phase 3 Local Features
+
+EfficientNet-B0 extracts fine-grained local PCB features from an image tensor. The classification head is removed and the spatial feature map is preserved. CBAM then applies channel attention followed by spatial attention while keeping the tensor shape unchanged.
+
+Module locations:
+
+```text
+crackxnet_app/features/cbam.py
+crackxnet_app/features/efficientnet_cbam.py
+```
+
+Feature flow:
+
+```text
+NCHW image tensor
+  -> EfficientNet-B0 features
+  -> CBAM channel + spatial attention
+  -> LocalFeatureOutput(feature_map, pooled_features)
+```
+
+For an input tensor shaped `(1, 3, 224, 224)`, the EfficientNet-B0 + CBAM feature map has 1280 channels and retains spatial dimensions from the backbone output. The pooled feature vector has shape `(1, 1280)`.
+
+Configuration is centralized through `LocalFeatureConfig` in `crackxnet_app/config.py`:
+
+- `CRACKXNET_EFFICIENTNET_PRETRAINED`
+- `CRACKXNET_LOCAL_FEATURE_SIZE`
+- `CRACKXNET_CBAM_REDUCTION`
+- `CRACKXNET_LOCAL_FEATURE_DEVICE`
+- `CRACKXNET_LOCAL_FEATURE_CHECKPOINT`
+
+`pretrained=False` passes `weights=None` to torchvision and does not request pretrained weights. ViT and DDAFF are not implemented in Phase 3.
+
+Run the feature tests:
+
+```bash
+python -m pytest tests\test_phase3_local_features.py
+```
 
 ## Troubleshooting
 

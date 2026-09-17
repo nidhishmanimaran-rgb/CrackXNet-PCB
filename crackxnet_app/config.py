@@ -39,3 +39,19 @@ class InspectionThresholds:
 
 
 DEFAULT_THRESHOLDS = InspectionThresholds()
+
+
+@dataclass(frozen=True)
+class LocalFeatureConfig:
+    efficientnet_pretrained: bool = os.getenv("CRACKXNET_EFFICIENTNET_PRETRAINED", "0") == "1"
+    input_size: int = int(os.getenv("CRACKXNET_LOCAL_FEATURE_SIZE", "224"))
+    cbam_reduction_ratio: int = int(os.getenv("CRACKXNET_CBAM_REDUCTION", "16"))
+    device: str = os.getenv("CRACKXNET_LOCAL_FEATURE_DEVICE", DEFAULT_DEVICE)
+    checkpoint_path: Path | None = (
+        Path(os.environ["CRACKXNET_LOCAL_FEATURE_CHECKPOINT"])
+        if os.getenv("CRACKXNET_LOCAL_FEATURE_CHECKPOINT")
+        else None
+    )
+
+
+DEFAULT_LOCAL_FEATURE_CONFIG = LocalFeatureConfig()
