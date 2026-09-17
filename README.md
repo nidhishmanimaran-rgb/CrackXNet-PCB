@@ -161,6 +161,7 @@ crackxnet_app/
     evaluation.py
   features/
     cbam.py
+    ddaff.py
     efficientnet_cbam.py
     vit.py
   inference/
@@ -267,6 +268,59 @@ Run the ViT feature tests:
 ```bash
 python -m pytest tests\test_phase4_vit_features.py
 ```
+
+## Phase 5 Feature Fusion
+
+DDAFF fuses the local EfficientNet-B0 + CBAM stream with the global ViT stream. It is a feature module only; Phase 6 will connect fused features to a detector.
+
+Architecture:
+
+```text
+EfficientNet-B0 + CBAM
+        |
+   Local Features
+        \
+         -> DDAFF -> Fused Features
+        /
+      ViT
+        |
+  Global Features
+```
+
+DDAFF projects both streams to a shared fusion dimension, reshapes ViT patch tokens into a spatial grid, aligns them to the local feature map size, computes adaptive trainable local/global stream weights, and returns a detector-ready fused spatial representation.
+
+Current tensor flow:
+
+```text
+local feature map:      (batch, local_channels, height, width)
+global patch tokens:    (batch, num_patches, global_dim)
+local projected:        (batch, fusion_dim, height, width)
+global projected:       (batch, fusion_dim, height, width)
+fusion weights:         (batch, 2)
+fused feature map:      (batch, fusion_dim, height, width)
+pooled fused features:  (batch, fusion_dim)
+```
+
+Configuration is centralized through `DDAFFConfig` in `crackxnet_app/config.py`:
+
+- `CRACKXNET_DDAFF_FUSION_DIM`
+- `CRACKXNET_DDAFF_DROPOUT`
+- `CRACKXNET_DDAFF_LAYER_NORM`
+- `CRACKXNET_DDAFF_DEVICE`
+
+Run the DDAFF tests:
+
+```bash
+python -m pytest tests\test_phase5_ddaff.py -q
+```
+
+Smoke-test flow:
+
+```text
+real PCB image -> EfficientNet-B0 + CBAM -> ViT -> DDAFF
+```
+
+Phase 5 implements feature fusion only. DDAFF is not connected to the production Faster R-CNN detector yet.
 
 ## Troubleshooting
 

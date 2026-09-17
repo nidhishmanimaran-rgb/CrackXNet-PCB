@@ -76,3 +76,14 @@ class GlobalFeatureConfig:
 
 
 DEFAULT_GLOBAL_FEATURE_CONFIG = GlobalFeatureConfig()
+
+
+@dataclass(frozen=True)
+class DDAFFConfig:
+    fusion_dim: int = int(os.getenv("CRACKXNET_DDAFF_FUSION_DIM", "256"))
+    dropout: float = float(os.getenv("CRACKXNET_DDAFF_DROPOUT", "0.0"))
+    use_layer_norm: bool = os.getenv("CRACKXNET_DDAFF_LAYER_NORM", "1") == "1"
+    device: str = os.getenv("CRACKXNET_DDAFF_DEVICE", DEFAULT_DEVICE)
+
+
+DEFAULT_DDAFF_CONFIG = DDAFFConfig()
