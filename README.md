@@ -533,3 +533,20 @@ python -m pytest tests\test_phase8_quality_assessment.py -q
 - CPU is supported but slow; use `--device cuda` only when CUDA is available.
 - If a checkpoint is missing or invalid, CLI inference exits with a clear error.
 - Dataset and model weights are ignored by `.gitignore`; do not commit DeepPCB data or `.pth` files.
+
+======================================================================
+
+# CrackXNet-PCB
+
+## CrackXNet Hybrid Model Evaluation Results
+**Architecture**: EfficientNet-B0 + CBAM + ViT + DDAFF + FPN + Faster R-CNN
+**Checkpoint**: `deployment/checkpoints/crackxnet_real_epoch10.pth` (Managed via Git LFS)
+**Dataset**: DeepPCB (1000 Train / 500 Test)
+
+### Measured Metrics (Held-out Test Set):
+- **mAP@0.50**: 94.87%
+- **mAP@0.50:0.95**: 64.90%
+- **mAP@0.75**: 75.46%
+- **Precision**: 83.09% (at 0.50 Conf / 0.50 IoU)
+- **Recall**: 93.73% (at 0.50 Conf / 0.50 IoU)
+

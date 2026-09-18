@@ -1,25 +1,28 @@
-data/
-/DeepPCB/
-/DeepPCB-master/
-outputs/
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Virtual environments
 .venv/
 venv/
 env/
-__pycache__/
-.pytest_cache/
-node_modules/
-*.pt
-*.pth
-*.ckpt
+
+# DeepPCB dataset - keep out of GitHub
+data/DeepPCB/
+
+# Training/generated outputs
+outputs/
+
+# Logs and temporary files
 *.log
 *.tmp
+*.temp
+
+# Jupyter/Colab
+.ipynb_checkpoints/
+
+# Environment/secrets
 .env
 .env.*
-!.env.example
-.vscode/
-.idea/
-*.pem
-*.key
-*.crt
-*.p12
-*.pfx
