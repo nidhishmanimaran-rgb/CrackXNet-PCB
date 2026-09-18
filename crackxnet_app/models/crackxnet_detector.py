@@ -6,6 +6,8 @@ from typing import Any
 
 import torch
 from torch import nn
+from torch.nn import functional as F
+from torchvision.models import efficientnet_b0
 from torchvision.models.detection import FasterRCNN
 from torchvision.models.detection.anchor_utils import AnchorGenerator
 from torchvision.ops import FeaturePyramidNetwork, MultiScaleRoIAlign
@@ -93,6 +95,139 @@ class CrackXNetHybridBackbone(nn.Module):
             "fpn_shapes": {name: tuple(value.shape) for name, value in fpn.items()},
             "fusion_weights": fused.fusion_weights.detach().cpu().tolist(),
         }
+
+
+class _ProductionChannelAttention(nn.Module):
+    def __init__(self, channels: int, reduction_ratio: int = 16) -> None:
+        super().__init__()
+        hidden = max(1, channels // reduction_ratio)
+        self.mlp = nn.Sequential(
+            nn.Conv2d(channels, hidden, kernel_size=1, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(hidden, channels, kernel_size=1, bias=False),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        avg_attention = self.mlp(F.adaptive_avg_pool2d(x, 1))
+        max_attention = self.mlp(F.adaptive_max_pool2d(x, 1))
+        return torch.sigmoid(avg_attention + max_attention)
+
+
+class _ProductionSpatialAttention(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.conv = nn.Conv2d(2, 1, kernel_size=7, padding=3, bias=False)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        avg = torch.mean(x, dim=1, keepdim=True)
+        max_values, _ = torch.max(x, dim=1, keepdim=True)
+        return torch.sigmoid(self.conv(torch.cat([avg, max_values], dim=1)))
+
+
+class _ProductionCBAM(nn.Module):
+    def __init__(self, channels: int) -> None:
+        super().__init__()
+        self.channel = _ProductionChannelAttention(channels)
+        self.spatial = _ProductionSpatialAttention()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = x * self.channel(x)
+        return x * self.spatial(x)
+
+
+class _ProductionDDAFFGate(nn.Module):
+    def __init__(self, channels: int = 256) -> None:
+        super().__init__()
+        self.weight_net = nn.Sequential(
+            nn.Conv2d(channels * 2, 64, kernel_size=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(64, 2, kernel_size=1),
+        )
+
+    def forward(self, local: torch.Tensor, global_context: torch.Tensor) -> torch.Tensor:
+        if global_context.shape[-2:] != local.shape[-2:]:
+            global_context = F.interpolate(
+                global_context,
+                size=local.shape[-2:],
+                mode="bilinear",
+                align_corners=False,
+            )
+        weights = torch.softmax(self.weight_net(torch.cat([local, global_context], dim=1)), dim=1)
+        return weights[:, :1] * local + weights[:, 1:] * global_context
+
+
+class _ProductionViTContext(nn.Module):
+    def __init__(self, channels: int = 256, feedforward_dim: int = 1024, layers: int = 2) -> None:
+        super().__init__()
+        self.position = nn.Parameter(torch.zeros(1, channels, 20, 20))
+        self.proj = nn.Conv2d(channels, channels, kernel_size=1)
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=channels,
+            nhead=8,
+            dim_feedforward=feedforward_dim,
+            dropout=0.0,
+            activation="relu",
+            batch_first=True,
+        )
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=layers)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.proj(x)
+        position = self.position
+        if position.shape[-2:] != x.shape[-2:]:
+            position = F.interpolate(position, size=x.shape[-2:], mode="bilinear", align_corners=False)
+        x = x + position
+        batch, channels, height, width = x.shape
+        tokens = x.flatten(2).transpose(1, 2)
+        encoded = self.encoder(tokens)
+        return encoded.transpose(1, 2).reshape(batch, channels, height, width)
+
+
+class ProductionCrackXNetBackbone(nn.Module):
+    """Backbone matching the verified 10-epoch production checkpoint schema."""
+
+    out_channels = 256
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.features = efficientnet_b0(weights=None).features
+        self.cbam = nn.ModuleList([_ProductionCBAM(40), _ProductionCBAM(112), _ProductionCBAM(192)])
+        self.projection = nn.ModuleList(
+            [
+                nn.Conv2d(40, self.out_channels, kernel_size=1),
+                nn.Conv2d(112, self.out_channels, kernel_size=1),
+                nn.Conv2d(192, self.out_channels, kernel_size=1),
+            ]
+        )
+        self.vit = _ProductionViTContext(self.out_channels)
+        self.ddaff = nn.ModuleList([_ProductionDDAFFGate(self.out_channels) for _ in range(3)])
+        self.fpn = FeaturePyramidNetwork([self.out_channels, self.out_channels, self.out_channels], self.out_channels)
+
+    def forward(self, x: torch.Tensor) -> OrderedDict[str, torch.Tensor]:
+        feature_maps: list[torch.Tensor] = []
+        for index, layer in enumerate(self.features):
+            x = layer(x)
+            if index in {3, 5, 6}:
+                stage = len(feature_maps)
+                feature_maps.append(self.cbam[stage](x))
+        projected = [projection(feature) for projection, feature in zip(self.projection, feature_maps)]
+        global_context = self.vit(projected[-1])
+        fused = [gate(local, global_context) for gate, local in zip(self.ddaff, projected)]
+        return self.fpn(OrderedDict((str(index), feature) for index, feature in enumerate(fused)))
+
+
+def create_production_faster_rcnn(num_classes: int = NUM_DETECTION_CLASSES) -> FasterRCNN:
+    backbone = ProductionCrackXNetBackbone()
+    anchor_generator = AnchorGenerator(sizes=((16,), (32,), (64,)), aspect_ratios=((0.5, 1.0, 2.0),) * 3)
+    roi_pooler = MultiScaleRoIAlign(featmap_names=["0", "1", "2"], output_size=7, sampling_ratio=2)
+    return FasterRCNN(
+        backbone,
+        num_classes=num_classes,
+        rpn_anchor_generator=anchor_generator,
+        box_roi_pool=roi_pooler,
+        min_size=640,
+        max_size=640,
+    )
 
 
 def create_hybrid_faster_rcnn(
@@ -183,6 +318,17 @@ def load_hybrid_checkpoint(path: str | Path, device: str = "auto") -> tuple[Fast
         raise FileNotFoundError(f"Hybrid checkpoint not found: {path}")
     torch_device = get_device(device)
     payload = load_checkpoint_payload(path, torch_device)
+    if "model_state_dict" in payload and payload.get("architecture") == "EfficientNet-B0 + CBAM + ViT + DDAFF + FPN + Faster R-CNN":
+        num_classes = int(payload.get("num_classes", NUM_DETECTION_CLASSES))
+        if num_classes != NUM_DETECTION_CLASSES:
+            raise RuntimeError(
+                f"Invalid hybrid checkpoint class count: expected {NUM_DETECTION_CLASSES}, got {num_classes}."
+            )
+        model = create_production_faster_rcnn(num_classes=num_classes)
+        model.load_state_dict(payload["model_state_dict"])
+        model.to(torch_device)
+        model.eval()
+        return model, payload
     if payload.get("model_mode") != "hybrid" or "hybrid_config" not in payload:
         raise RuntimeError(f"Invalid hybrid checkpoint: {path}")
     num_classes = int(payload.get("num_classes", NUM_DETECTION_CLASSES))

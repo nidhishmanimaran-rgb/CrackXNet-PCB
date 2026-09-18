@@ -20,12 +20,17 @@ from crackxnet_app.inference.pipeline import CrackXNetPipeline
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run a lightweight CrackXNet latency smoke check.")
-    parser.add_argument("--checkpoint", type=Path, help="Optional checkpoint to time direct pipeline loading/inference.")
-    parser.add_argument("--mode", choices=["baseline", "hybrid"], default="baseline")
+    parser.add_argument("--checkpoint", type=Path, help="Checkpoint to time direct real pipeline loading/inference.")
+    parser.add_argument("--mode", choices=["baseline", "hybrid"], default="hybrid")
+    parser.add_argument("--demo", action="store_true", help="Run explicit demo detector for UI/performance plumbing only.")
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--image-size", type=int, default=96)
     parser.add_argument("--output", type=Path, default=Path("outputs") / "audit" / "performance_smoke.json")
     args = parser.parse_args()
+    if args.demo and args.checkpoint:
+        raise SystemExit("--demo cannot be combined with --checkpoint.")
+    if not args.demo and not args.checkpoint:
+        raise SystemExit("Real performance smoke requires --checkpoint. Use --demo only for explicit development/demo mode.")
 
     image = Image.new("RGB", (args.image_size, args.image_size), (42, 96, 64))
     measurements: dict[str, float | str | int | None] = {
@@ -35,7 +40,7 @@ def main() -> None:
     }
 
     started = time.perf_counter()
-    pipeline = CrackXNetPipeline(force_demo=args.checkpoint is None, checkpoint_path=args.checkpoint, model_mode=args.mode, device=args.device)
+    pipeline = CrackXNetPipeline(force_demo=args.demo, checkpoint_path=args.checkpoint, model_mode=args.mode, device=args.device)
     measurements["pipeline_init_seconds"] = round(time.perf_counter() - started, 4)
 
     started = time.perf_counter()

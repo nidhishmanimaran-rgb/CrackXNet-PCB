@@ -26,7 +26,7 @@ DEFAULT_CHECKPOINT_PATH = Path(
 )
 DEFAULT_DEVICE = os.getenv("CRACKXNET_DEVICE", "auto")
 DEFAULT_CONFIDENCE_THRESHOLD = float(os.getenv("CRACKXNET_CONFIDENCE", "0.5"))
-DEFAULT_MODEL_MODE = os.getenv("CRACKXNET_MODEL_MODE", "baseline")
+DEFAULT_MODEL_MODE = os.getenv("CRACKXNET_MODEL_MODE", "hybrid")
 MAX_UPLOAD_BYTES = int(os.getenv("CRACKXNET_MAX_UPLOAD_BYTES", str(15 * 1024 * 1024)))
 MAX_UPLOAD_PIXELS = int(os.getenv("CRACKXNET_MAX_UPLOAD_PIXELS", "40000000"))
 REPORT_CACHE_MAX_ENTRIES = int(os.getenv("CRACKXNET_REPORT_CACHE_MAX_ENTRIES", "100"))
@@ -118,7 +118,7 @@ DEFAULT_DDAFF_CONFIG = DDAFFConfig()
 class HybridDetectorConfig:
     enabled: bool = os.getenv("CRACKXNET_HYBRID_ENABLED", "0") == "1"
     checkpoint_path: Path = Path(
-        os.getenv("CRACKXNET_HYBRID_CHECKPOINT", PROJECT_ROOT / "outputs" / "trained" / "hybrid" / "best.pth")
+        os.getenv("CRACKXNET_HYBRID_CHECKPOINT", PROJECT_ROOT / "deployment" / "checkpoints" / "crackxnet_real_epoch10.pth")
     )
     image_size: int = int(os.getenv("CRACKXNET_HYBRID_IMAGE_SIZE", "224"))
     fusion_dim: int = int(os.getenv("CRACKXNET_HYBRID_FUSION_DIM", "256"))

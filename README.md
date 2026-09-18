@@ -6,7 +6,7 @@ Workflow:
 PCB image -> detection -> class/severity -> explainability heatmap -> PASS/REWORK/REJECT -> report
 ```
 
-Phase 2 implements a real DeepPCB + Faster R-CNN baseline. Phase 3 adds EfficientNet-B0 + CBAM local features. Phase 4 adds ViT global features. Phase 5 adds DDAFF fusion. Phase 6 integrates the hybrid DDAFF + FPN + Faster R-CNN detector path. Phase 7 adds explainability and transparent rule-based severity reasoning. Phase 8 adds deterministic PASS/REWORK/REJECT quality assessment. The app preserves the FastAPI UI, CLI inference, reports, and heuristic demo fallback. It does not claim reproduction of the paper's mAP.
+Phase 2 implements a DeepPCB + Faster R-CNN baseline. Phase 3 adds EfficientNet-B0 + CBAM local features. Phase 4 adds ViT global features. Phase 5 adds DDAFF fusion. Phase 6 integrates the hybrid DDAFF + FPN + Faster R-CNN detector path. Phase 7 adds explainability and transparent rule-based severity reasoning. Phase 8 adds deterministic PASS/REWORK/REJECT quality assessment. Production inference does not silently fall back to heuristic detections; demo mode is explicit and for development only. This implementation does not claim reproduction of the paper's mAP.
 
 ## Classes
 
@@ -141,20 +141,22 @@ This deterministic smoke check compares the project evaluator against an indepen
 Checkpoint-backed inference:
 
 ```bash
-python scripts\infer.py path\to\pcb.png --model outputs\trained\baseline\best.pth --mode baseline --out outputs
+python scripts/infer.py path/to/pcb.png --model outputs/trained/baseline/best.pth --mode baseline --out outputs
 ```
 
 Hybrid checkpoint inference:
 
 ```bash
-python scripts\infer.py path\to\pcb.png --model outputs\trained\hybrid\best.pth --mode hybrid --out outputs
+python scripts/infer.py path/to/pcb.png --model deployment/checkpoints/crackxnet_real_epoch10.pth --mode hybrid --out outputs
 ```
 
-Explicit demo mode:
+Explicit demo mode, for development/UI plumbing only:
 
 ```bash
-python scripts\infer.py path\to\pcb.png --out outputs
+python scripts/infer.py path/to/pcb.png --demo --out outputs
 ```
+
+Without `--model`, real CLI inference exits instead of inventing detections.
 
 Outputs:
 
@@ -164,6 +166,13 @@ Outputs:
 - `report.html`
 
 ## FastAPI
+
+Before first local use after cloning, install Git LFS and pull the real checkpoint:
+
+```bash
+git lfs install
+git lfs pull
+```
 
 ```bash
 python -m uvicorn crackxnet_app.api:app --reload --host 127.0.0.1 --port 8000
@@ -175,23 +184,30 @@ Open:
 http://127.0.0.1:8000
 ```
 
-The app auto-loads `outputs/trained/baseline/best.pth` when it exists; otherwise it stays in explicit demo mode unless overridden:
+The app defaults to the CrackXNet hybrid architecture and real Git LFS checkpoint:
 
-```bash
-set CRACKXNET_CHECKPOINT=outputs\trained\baseline\best.pth
-set CRACKXNET_DEVICE=auto
-set CRACKXNET_CONFIDENCE=0.5
+```text
+deployment/checkpoints/crackxnet_real_epoch10.pth
 ```
 
-For hybrid mode:
+Override the trained hybrid checkpoint only when needed:
 
 ```bash
 set CRACKXNET_MODEL_MODE=hybrid
-set CRACKXNET_HYBRID_CHECKPOINT=outputs\trained\hybrid\best.pth
-set CRACKXNET_HYBRID_DEVICE=cpu
+set CRACKXNET_HYBRID_CHECKPOINT=deployment\checkpoints\crackxnet_real_epoch10.pth
+set CRACKXNET_HYBRID_DEVICE=auto
+set CRACKXNET_HYBRID_CONFIDENCE=0.5
 ```
 
-The UI shows `DeepPCB Faster R-CNN Baseline` for baseline checkpoints, `CrackXNet Hybrid Detector` for hybrid checkpoints, and `Baseline / Demo Mode` when no checkpoint is loaded.
+Baseline checkpoints remain supported for comparison, but are not the default:
+
+```bash
+set CRACKXNET_MODEL_MODE=baseline
+set CRACKXNET_CHECKPOINT=outputs\trained\baseline\best.pth
+set CRACKXNET_DEVICE=auto
+```
+
+When no valid checkpoint is configured, the UI and API report `Model unavailable — configure a trained CrackXNet checkpoint.` No fake defects are produced in this state. `/api/health` exposes model name, mode, result mode, checkpoint status/path, device, and availability.
 
 Only load checkpoints from trusted sources. Checkpoint loading uses PyTorch `weights_only=True`; an invalid configured checkpoint leaves the app available but returns a clear detector-unavailable response instead of silently falling back to demo mode. The local report cache is bounded by `CRACKXNET_REPORT_CACHE_MAX_ENTRIES` (default `100`).
 
@@ -531,8 +547,9 @@ python -m pytest tests\test_phase8_quality_assessment.py -q
 
 - If `data/DeepPCB` is missing, place or link the local DeepPCB dataset there, or set `DEEPCB_DATA_ROOT`.
 - CPU is supported but slow; use `--device cuda` only when CUDA is available.
-- If a checkpoint is missing or invalid, CLI inference exits with a clear error.
-- Dataset and model weights are ignored by `.gitignore`; do not commit DeepPCB data or `.pth` files.
+- If the real checkpoint is missing after clone, run `git lfs pull` and verify `deployment/checkpoints/crackxnet_real_epoch10.pth` exists.
+- If a checkpoint is invalid, CLI/API inference exits with a clear error and does not fabricate detections.
+- DeepPCB data and generated outputs are ignored by `.gitignore`; do not commit datasets, temporary files, logs, or secrets.
 
 ======================================================================
 

@@ -14,6 +14,8 @@ const qualitySeverity = document.querySelector("#qualitySeverity");
 const qualityReason = document.querySelector("#qualityReason");
 const qualityRecommendation = document.querySelector("#qualityRecommendation");
 
+loadModelStatus();
+
 fileInput.addEventListener("change", async () => {
   const file = fileInput.files[0];
   if (!file) return;
@@ -33,15 +35,31 @@ fileInput.addEventListener("change", async () => {
     message.textContent = payload.notes.join(" ");
   } catch (error) {
     message.textContent = error.message;
+    overlay.removeAttribute("src");
+    heatmap.removeAttribute("src");
+    findings.innerHTML = '<tr><td colspan="5">No inference result available.</td></tr>';
   }
 });
+
+async function loadModelStatus() {
+  try {
+    const response = await fetch("/api/health");
+    const payload = await response.json();
+    modelStatus.textContent = payload.model_status || "Model status unavailable";
+    if (payload.model_available === false) {
+      message.textContent = "Model unavailable — configure a trained CrackXNet checkpoint.";
+    }
+  } catch (error) {
+    message.textContent = "Unable to read model status.";
+  }
+}
 
 function renderResult(payload) {
   decision.textContent = payload.decision;
   decision.className = `decision-${payload.decision.toLowerCase()}`;
   defectCount.textContent = payload.defects.length;
   maxSeverity.textContent = Number(payload.max_severity).toFixed(3);
-  modelStatus.textContent = payload.model_status || "Baseline / Demo Mode";
+  modelStatus.textContent = payload.model_status || "Model status unavailable";
   overlay.src = payload.overlay_image;
   heatmap.src = payload.heatmap_image;
   reportLink.href = `/api/report/${payload.report_id}`;

@@ -52,8 +52,11 @@ def index() -> str:
 
 
 @app.get("/api/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+def health() -> dict[str, object]:
+    return {
+        "status": "ok",
+        **pipeline.status_dict(),
+    }
 
 
 @app.post("/api/inspect")
@@ -73,7 +76,7 @@ async def inspect(file: UploadFile = File(...)) -> JSONResponse:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except DetectorUnavailableError as exc:
-        raise HTTPException(status_code=503, detail="Configured detector is unavailable.") from exc
+        raise HTTPException(status_code=503, detail=f"Configured detector is unavailable: {exc}") from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail="Inspection failed.") from exc
 

@@ -41,6 +41,7 @@ def test_baseline_detector_uses_checkpoint_image_size(tmp_path: Path) -> None:
 
 
 def test_api_health_and_demo_inspect(tmp_path: Path) -> None:
+    api.pipeline = CrackXNetPipeline(force_demo=True)
     image_path = tmp_path / "sample.png"
     Image.new("RGB", (96, 96), (30, 100, 60)).save(image_path)
     client = TestClient(app)
@@ -54,6 +55,7 @@ def test_api_health_and_demo_inspect(tmp_path: Path) -> None:
 
 
 def test_api_sanitizes_uploaded_display_filename(tmp_path: Path) -> None:
+    api.pipeline = CrackXNetPipeline(force_demo=True)
     image_path = tmp_path / "sample.png"
     Image.new("RGB", (32, 32), (30, 100, 60)).save(image_path)
     client = TestClient(app)
@@ -62,6 +64,25 @@ def test_api_sanitizes_uploaded_display_filename(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert response.json()["filename"] == "sample.png"
+
+
+def test_api_missing_checkpoint_reports_unavailable(tmp_path: Path) -> None:
+    api.pipeline = CrackXNetPipeline(checkpoint_path=tmp_path / "missing.pth", model_mode="hybrid")
+    image_path = tmp_path / "sample.png"
+    Image.new("RGB", (32, 32), (30, 100, 60)).save(image_path)
+    client = TestClient(app)
+
+    health = client.get("/api/health").json()
+    assert health["model_available"] is False
+    assert health["checkpoint_status"] == "missing"
+    assert health["result_mode"] == "unavailable"
+    assert "Model unavailable" in health["model_status"]
+
+    with image_path.open("rb") as handle:
+        response = client.post("/api/inspect", files={"file": ("sample.png", handle, "image/png")})
+
+    assert response.status_code == 503
+    assert "Model unavailable" in response.json()["detail"]
 
 
 def test_checkpoint_loader_rejects_non_checkpoint_suffix(tmp_path: Path) -> None:
@@ -124,7 +145,8 @@ def test_invalid_existing_checkpoint_does_not_silently_fall_back(tmp_path: Path)
     checkpoint.write_bytes(b"not a checkpoint")
     pipeline = CrackXNetPipeline(checkpoint_path=checkpoint, model_mode="baseline")
 
-    assert pipeline.model_status == "Configured detector unavailable"
+    assert "Model unavailable" in pipeline.model_status
+    assert pipeline.status_dict()["checkpoint_status"] == "invalid"
     with pytest.raises(DetectorUnavailableError):
         pipeline.inspect(Image.new("RGB", (16, 16)))
 

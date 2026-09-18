@@ -6,6 +6,7 @@ import torch
 from fastapi.testclient import TestClient
 from PIL import Image
 
+from crackxnet_app import api
 from crackxnet_app.api import app
 from crackxnet_app.config import ExplainabilityConfig, HybridDetectorConfig, SeverityConfig
 from crackxnet_app.explainability import GradCAMExplainer
@@ -102,6 +103,7 @@ def test_pipeline_adds_structured_severity_and_explainability_note() -> None:
 
 
 def test_api_response_and_report_compatibility(tmp_path: Path) -> None:
+    api.pipeline = CrackXNetPipeline(force_demo=True)
     image_path = tmp_path / "sample.png"
     Image.new("RGB", (96, 96), (30, 100, 60)).save(image_path)
     client = TestClient(app)

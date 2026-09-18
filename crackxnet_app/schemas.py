@@ -74,6 +74,7 @@ class InspectionResult:
     defects: list[DefectPrediction] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     quality: QualityAssessment | None = None
+    model_metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -85,4 +86,5 @@ class InspectionResult:
             "defects": [defect.to_dict() for defect in self.defects],
             "notes": list(self.notes),
             "quality": self.quality.to_dict() if self.quality else None,
+            "model_metadata": dict(self.model_metadata),
         }

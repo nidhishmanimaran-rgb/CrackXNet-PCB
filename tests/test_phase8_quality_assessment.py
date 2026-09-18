@@ -5,8 +5,10 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 from PIL import Image
 
+from crackxnet_app import api
 from crackxnet_app.api import app
 from crackxnet_app.config import QualityConfig
+from crackxnet_app.inference.pipeline import CrackXNetPipeline
 from crackxnet_app.quality import RuleBasedQualityAssessor
 from crackxnet_app.reporting.html_report import render_html_report
 from crackxnet_app.schemas import BoundingBox, DefectPrediction, InspectionResult
@@ -111,6 +113,7 @@ def test_quality_reject_defect_count() -> None:
 
 
 def test_api_response_contains_quality(tmp_path: Path) -> None:
+    api.pipeline = CrackXNetPipeline(force_demo=True)
     image_path = tmp_path / "sample.png"
     Image.new("RGB", (96, 96), (30, 100, 60)).save(image_path)
     client = TestClient(app)

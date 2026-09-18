@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from PIL import Image
 
@@ -40,10 +41,15 @@ class CrackXNetPipeline:
         self.severity_estimator = RuleBasedSeverityEstimator(DEFAULT_SEVERITY_CONFIG)
         self.quality_assessor = RuleBasedQualityAssessor(DEFAULT_QUALITY_CONFIG)
         self.explainer = GradCAMExplainer(DEFAULT_EXPLAINABILITY_CONFIG)
-        self.model_status = "Baseline / Demo Mode"
         if model_mode not in {"baseline", "hybrid"}:
             raise ValueError("model_mode must be 'baseline' or 'hybrid'.")
         self.model_mode = model_mode
+        self.model_name = "CrackXNet Hybrid Detector" if model_mode == "hybrid" else "DeepPCB Faster R-CNN Baseline"
+        self.result_mode = "unavailable"
+        self.device = device
+        self.runtime_device = "unavailable"
+        self.checkpoint_status = "not_checked"
+        self.model_status = "Model unavailable — configure a trained CrackXNet checkpoint."
         default_checkpoint = DEFAULT_HYBRID_DETECTOR_CONFIG.checkpoint_path if model_mode == "hybrid" else DEFAULT_CHECKPOINT_PATH
         selected_confidence = (
             DEFAULT_HYBRID_DETECTOR_CONFIG.confidence_threshold
@@ -51,9 +57,25 @@ class CrackXNetPipeline:
             else DEFAULT_CONFIDENCE_THRESHOLD if confidence_threshold is None else confidence_threshold
         )
         self.checkpoint_path = Path(checkpoint_path) if checkpoint_path else default_checkpoint
-        self.detector = BaselinePCBDetector(thresholds)
+        self.detector = None
         self.initialization_error = False
-        if not force_demo and self.checkpoint_path and self.checkpoint_path.exists():
+
+        if force_demo:
+            self.detector = BaselinePCBDetector(thresholds)
+            self.model_name = "Baseline visual demo detector"
+            self.result_mode = "demo"
+            self.runtime_device = "cpu"
+            self.checkpoint_status = "demo_no_checkpoint"
+            self.model_status = "Baseline / Explicit Demo Mode"
+            return
+
+        if not self.checkpoint_path or not self.checkpoint_path.exists():
+            self.initialization_error = True
+            self.checkpoint_status = "missing"
+            self.model_status = "Model unavailable — configure a trained CrackXNet checkpoint."
+            return
+
+        if self.checkpoint_path.exists():
             try:
                 if model_mode == "hybrid":
                     self.detector = HybridInspectionDetector(
@@ -68,17 +90,40 @@ class CrackXNetPipeline:
                         device=device,
                     )
                 self.model_status = self.detector.status
+                self.model_name = self.detector.status
+                self.result_mode = "real"
+                self.checkpoint_status = "loaded"
+                self.runtime_device = str(getattr(self.detector, "torch_device", device))
             except Exception:
                 self.initialization_error = True
-                self.model_status = "Configured detector unavailable"
+                self.checkpoint_status = "invalid"
+                self.model_status = "Model unavailable — configure a trained CrackXNet checkpoint."
+
+    @property
+    def model_available(self) -> bool:
+        return not self.initialization_error and self.detector is not None
+
+    def status_dict(self) -> dict[str, Any]:
+        return {
+            "model_status": self.model_status,
+            "model_name": self.model_name,
+            "mode": self.model_mode,
+            "result_mode": self.result_mode,
+            "model_available": self.model_available,
+            "checkpoint_path": str(self.checkpoint_path) if self.checkpoint_path else None,
+            "checkpoint_status": self.checkpoint_status,
+            "device": self.runtime_device,
+            "requested_device": self.device,
+        }
 
     def inspect(self, image: Image.Image, filename: str = "uploaded-image") -> PipelineOutputs:
-        if self.initialization_error:
-            raise DetectorUnavailableError("Configured detector could not be initialized.")
+        if self.initialization_error or self.detector is None:
+            checkpoint_hint = f" Expected checkpoint: {self.checkpoint_path}." if self.checkpoint_path else ""
+            raise DetectorUnavailableError(f"{self.model_status}{checkpoint_hint}")
         defects, saliency = self.detector.detect(image)
         defects = self.severity_estimator.apply(defects, image.size)
         quality = self.quality_assessor.assess(defects)
-        explanation_note = "Demo saliency from baseline anomaly mask."
+        explanation_note = "Explicit demo saliency from baseline anomaly mask."
         if hasattr(self.detector, "model"):
             explanation = self.explainer.explain_detector(self.detector, image, defects)
             saliency = explanation.normalized_heatmap
@@ -91,7 +136,7 @@ class CrackXNetPipeline:
             f"Quality mode: {quality.mode}; {quality.reason}",
             f"Explainability: {explanation_note}",
             "Hybrid mode loads CrackXNet EfficientNet-CBAM + ViT + DDAFF + FPN + Faster R-CNN checkpoints.",
-            "Fallback/demo mode is heuristic and is not a trained CrackXNet model.",
+            "No heuristic detections are produced unless explicit demo mode is requested by code.",
         ]
         result = InspectionResult(
             filename=filename,
@@ -102,6 +147,7 @@ class CrackXNetPipeline:
             defects=defects,
             notes=notes,
             quality=quality,
+            model_metadata=self.status_dict(),
         )
         overlay = draw_overlay(image, defects)
         heatmap = compose_heatmap(image, saliency)

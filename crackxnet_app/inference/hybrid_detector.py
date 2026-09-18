@@ -22,8 +22,14 @@ class HybridInspectionDetector:
     def __post_init__(self) -> None:
         self.model, self.checkpoint = load_hybrid_checkpoint(self.checkpoint_path, self.device)
         self.torch_device = next(self.model.parameters()).device
-        config = self.checkpoint["hybrid_config"]
-        self.image_size = int(config.get("image_size", 224))
+        config = self.checkpoint.get("hybrid_config", {})
+        image_size = self.checkpoint.get("image_size", config.get("image_size", 224))
+        self.image_size = int(image_size[0] if isinstance(image_size, list) else image_size)
+        class_names = self.checkpoint.get("class_names")
+        if isinstance(class_names, list) and len(class_names) >= 2:
+            self.class_id_to_name = {index: str(name) for index, name in enumerate(class_names) if index > 0}
+        else:
+            self.class_id_to_name = CLASS_ID_TO_NAME
         self.model.eval()
 
     @property
@@ -45,7 +51,7 @@ class HybridInspectionDetector:
             if confidence < self.confidence_threshold:
                 continue
             class_id = int(label.detach().cpu())
-            if class_id not in CLASS_ID_TO_NAME:
+            if class_id not in self.class_id_to_name:
                 continue
             x1, y1, x2, y2 = [float(value) for value in box.detach().cpu().tolist()]
             bbox = BoundingBox(
@@ -59,7 +65,7 @@ class HybridInspectionDetector:
             severity = _severity_from_box(bbox, width * height, confidence)
             defects.append(
                 DefectPrediction(
-                    label=CLASS_ID_TO_NAME[class_id],
+                    label=self.class_id_to_name[class_id],
                     confidence=round(confidence, 3),
                     severity=round(severity, 3),
                     bbox=bbox,
